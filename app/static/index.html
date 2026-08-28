@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>유튜브 구간 편집기</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ctext y=%2726%27 font-size=%2728%27%3E%E2%9C%82%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>유튜브 구간 편집기</h1>
+    <p>링크와 구간만 주면 그 부분만 이어붙입니다</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="health" class="notice err" hidden></div>
+
+  <!-- 1. 영상 -->
+  <section class="card">
+    <h2><i class="step">1</i> 영상</h2>
+    <div class="row">
+      <div class="grow">
+        <label for="url">유튜브 링크</label>
+        <input type="text" id="url" placeholder="https://youtu.be/... 또는 영상 ID" autocomplete="off">
+      </div>
+      <button id="loadBtn">불러오기</button>
+    </div>
+    <div id="videoMeta" class="video-meta" hidden>
+      <img id="videoThumb" alt="">
+      <div>
+        <b id="videoTitle"></b>
+        <span id="videoSub"></span>
+      </div>
+    </div>
+    <div id="urlError" class="notice err" hidden></div>
+  </section>
+
+  <!-- 2. 구간 -->
+  <section class="card" id="segmentCard" hidden>
+    <h2><i class="step">2</i> 구간</h2>
+    <label for="segText">제미나이가 정리해준 구간을 그대로 붙여넣으세요</label>
+    <textarea id="segText" spellcheck="false" placeholder="00:01:23 - 00:02:45 인트로
+3:10~4:05 핵심 요약
+| 05:12 | 06:00 | 마무리 |
+
+표, 목록, JSON, 챕터 목록(시작 시각만) 다 읽습니다."></textarea>
+    <div id="parseSummary" class="summary" hidden></div>
+    <div id="parseIssues"></div>
+
+    <div class="options">
+      <div>
+        <label for="height">화질</label>
+        <select id="height">
+          <option value="480">480p</option>
+          <option value="720">720p</option>
+          <option value="1080" selected>1080p</option>
+          <option value="1440">1440p</option>
+          <option value="2160">2160p (4K)</option>
+        </select>
+      </div>
+      <div>
+        <label for="prefer">코덱</label>
+        <select id="prefer">
+          <option value="compat" selected>호환성 (H.264)</option>
+          <option value="small">용량 절약 (AV1/VP9)</option>
+        </select>
+      </div>
+      <div>
+        <label for="pad">편집 여유분 (초)</label>
+        <input type="number" id="pad" min="0" max="120" step="5" value="10">
+      </div>
+      <div style="align-self:end">
+        <label class="check"><input type="checkbox" id="whole"> 전체 영상 받기</label>
+      </div>
+    </div>
+    <p class="hint">
+      여유분만큼 앞뒤를 더 받아둡니다. 그 범위 안에서는 시작·끝을 고쳐도 다시 받지 않습니다.
+      영상 전체를 자유롭게 편집하려면 ‘전체 영상 받기’를 켜세요(느리고 용량이 큽니다).
+    </p>
+
+    <div class="row" style="margin-top:14px">
+      <button id="prepareBtn">소스 준비</button>
+      <button id="cancelBtn" class="ghost" hidden>취소</button>
+    </div>
+    <div id="prepareProgress" class="progress" hidden>
+      <div class="label"><span id="prepareMsg"></span><span id="preparePct"></span></div>
+      <div class="bar"><i id="prepareBar"></i></div>
+    </div>
+    <div id="prepareError" class="notice err" hidden></div>
+  </section>
+
+  <!-- 3. 편집 -->
+  <section class="card" id="editCard" hidden>
+    <h2><i class="step">3</i> 편집</h2>
+    <p class="hint" style="margin-top:-6px">
+      각 구간을 재생해 보고 시작·끝을 조정하세요. 영상을 재생하다 원하는 지점에서
+      <b>여기부터</b>/<b>여기까지</b>를 누르면 그 시각으로 맞춰집니다.
+    </p>
+    <div id="cutList"></div>
+    <div id="editSummary" class="summary"></div>
+    <div id="staleNotice" class="notice warn" hidden></div>
+  </section>
+
+  <!-- 4. 렌더 -->
+  <section class="card" id="renderCard" hidden>
+    <h2><i class="step">4</i> 만들기</h2>
+    <div class="row">
+      <div>
+        <label for="quality">품질</label>
+        <select id="quality">
+          <option value="fast" selected>빠름</option>
+          <option value="balanced">균형</option>
+          <option value="quality">고품질</option>
+        </select>
+      </div>
+      <label class="check" style="padding-bottom:9px"><input type="checkbox" id="audioOnly"> 소리만 (mp3)</label>
+      <button id="renderBtn">이어붙이기</button>
+      <button id="renderCancelBtn" class="ghost" hidden>취소</button>
+    </div>
+    <div id="renderProgress" class="progress" hidden>
+      <div class="label"><span id="renderMsg"></span><span id="renderPct"></span></div>
+      <div class="bar"><i id="renderBar"></i></div>
+    </div>
+    <div id="renderError" class="notice err" hidden></div>
+
+    <div id="resultBox" hidden style="margin-top:16px">
+      <video id="resultVideo" controls playsinline preload="metadata"></video>
+      <div class="markers" id="resultMarkers"></div>
+      <div class="result-actions">
+        <a id="downloadLink" class="dl" href="#">다운로드</a>
+        <button id="backToEditBtn" class="ghost">구간 더 손보기</button>
+      </div>
+      <p class="hint">구간을 고친 뒤 다시 이어붙이면 됩니다. 이미 받아둔 소스를 쓰므로 다시 다운로드하지 않습니다.</p>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

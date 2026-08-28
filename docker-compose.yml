@@ -1,0 +1,19 @@
+services:
+  clipper:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - clipper-data:/data
+      # 유튜브가 봇으로 막을 때 쿠키 파일을 여기에 두고 CLIPPER_COOKIES를 켠다
+      # - ./cookies.txt:/cookies.txt:ro
+    environment:
+      # 외부에 열어둘 거면 반드시 설정할 것
+      CLIPPER_PASSWORD: "${CLIPPER_PASSWORD:-}"
+      # CLIPPER_COOKIES: /cookies.txt
+      CLIPPER_DEFAULT_HEIGHT: "1080"
+      CLIPPER_DEFAULT_PAD: "10"
+    restart: unless-stopped
+
+volumes:
+  clipper-data:
