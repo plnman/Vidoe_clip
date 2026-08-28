@@ -71,8 +71,27 @@ set CLIPPER_PASSWORD=원하는비밀번호 && run.bat --lan  # Windows
 아래 주소를 노트북 브라우저에 치면 됩니다. 무거운 다운로드·인코딩은 집 PC가 하고
 노트북은 화면만 띄우므로, 노트북 성능이나 배터리와 무관하게 돌아갑니다.
 
-집 밖에서도 쓰고 싶으면 공유기 포트를 여는 대신 **Tailscale**이나
-**Cloudflare Tunnel**을 쓰세요. 설정이 더 쉽고 훨씬 안전합니다.
+### 방법 C — 인터넷 어디서나 쓰는 공개 주소
+
+집 PC에서 `--share`로 띄우면 **https 주소가 발급**됩니다. 폰이든 회사든 그 주소로 들어갑니다.
+공유기 포트를 열 필요도, 고정 IP도 필요 없습니다.
+
+```bash
+CLIPPER_PASSWORD=원하는비밀번호 ./run.sh --share      # macOS / Linux
+set CLIPPER_PASSWORD=원하는비밀번호 && run.bat --share  # Windows
+```
+
+[cloudflared](https://github.com/cloudflare/cloudflared/releases)가 필요합니다
+(`brew install cloudflared` / `winget install Cloudflare.cloudflared`).
+계정 가입은 필요 없고, 실행하면 `https://xxxx-yyyy.trycloudflare.com` 같은 주소를 찍어 줍니다.
+
+주의할 점 두 가지입니다.
+
+- **링크만 알면 누구나 들어옵니다.** 그래서 `CLIPPER_PASSWORD` 없이는 아예 실행되지 않게 막아 뒀습니다.
+- **터미널을 닫으면 주소도 사라집니다.** 매번 새 주소가 발급됩니다.
+  고정 주소가 필요하면 Cloudflare 계정을 만들어 named tunnel을 쓰거나 Tailscale을 쓰세요.
+
+유튜브 입장에서는 여전히 집 IP에서 들어오는 요청이라, 봇으로 막힐 일도 없습니다.
 
 `--lan`으로 열 때는 `CLIPPER_PASSWORD`를 꼭 설정하세요. 안 하면 실행할 때 경고가 뜹니다.
 설정해 두면 접속 시 비밀번호를 한 번 묻고 브라우저가 기억합니다.
