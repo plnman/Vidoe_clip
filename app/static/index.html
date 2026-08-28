@@ -109,6 +109,10 @@
   <section class="card" id="renderCard" hidden>
     <h2><i class="step">4</i> 만들기</h2>
     <div class="row">
+      <div class="grow">
+        <label for="format">저장 형식</label>
+        <select id="format"></select>
+      </div>
       <div>
         <label for="quality">품질</label>
         <select id="quality">
@@ -117,10 +121,12 @@
           <option value="quality">고품질</option>
         </select>
       </div>
-      <label class="check" style="padding-bottom:9px"><input type="checkbox" id="audioOnly"> 소리만 (mp3)</label>
-      <button id="renderBtn">이어붙이기</button>
+      <button id="renderBtn">만들기</button>
       <button id="renderCancelBtn" class="ghost" hidden>취소</button>
     </div>
+    <label class="check" style="margin-top:12px">
+      <input type="checkbox" id="separate"> 이어붙이지 않고 구간마다 따로 저장 (ZIP)
+    </label>
     <div id="renderProgress" class="progress" hidden>
       <div class="label"><span id="renderMsg"></span><span id="renderPct"></span></div>
       <div class="bar"><i id="renderBar"></i></div>
@@ -128,13 +134,14 @@
     <div id="renderError" class="notice err" hidden></div>
 
     <div id="resultBox" hidden style="margin-top:16px">
-      <video id="resultVideo" controls playsinline preload="metadata"></video>
+      <div id="resultPreview"></div>
       <div class="markers" id="resultMarkers"></div>
       <div class="result-actions">
-        <a id="downloadLink" class="dl" href="#">다운로드</a>
+        <a id="downloadLink" class="dl" href="#">PC에 저장</a>
+        <span id="resultInfo" class="hint" style="align-self:center;margin:0"></span>
         <button id="backToEditBtn" class="ghost">구간 더 손보기</button>
       </div>
-      <p class="hint">구간을 고친 뒤 다시 이어붙이면 됩니다. 이미 받아둔 소스를 쓰므로 다시 다운로드하지 않습니다.</p>
+      <p class="hint">구간을 고친 뒤 다시 만들면 됩니다. 이미 받아둔 소스를 쓰므로 다시 다운로드하지 않습니다.</p>
     </div>
   </section>
 </main>

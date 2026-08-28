@@ -79,15 +79,42 @@ def test_render_fills_silence_for_video_without_audio(source, tmp_path):
     assert info.duration == pytest.approx(4.0, abs=0.4)
 
 
-def test_audio_only_output(source, tmp_path):
+@pytest.mark.parametrize("fmt,ext", [("mp3", ".mp3"), ("m4a", ".m4a")])
+def test_audio_only_formats(source, tmp_path, fmt, ext):
     out = media.render(
         [media.Cut(source, 0.0, 2.0), media.Cut(source, 4.0, 6.0)],
-        tmp_path / "out.mp3",
-        audio_only=True,
+        tmp_path / f"out{ext}",
+        fmt=fmt,
     )
     info = media.probe(out)
     assert info.has_audio and not info.has_video
     assert info.duration == pytest.approx(4.0, abs=0.4)
+
+
+@pytest.mark.parametrize("fmt,ext", [("mp4", ".mp4"), ("mp4_hevc", ".mp4"), ("webm", ".webm")])
+def test_video_formats(source, tmp_path, fmt, ext):
+    out = media.render([media.Cut(source, 1.0, 3.0)], tmp_path / f"out-{fmt}{ext}", fmt=fmt)
+    info = media.probe(out)
+    assert info.has_video and info.has_audio
+    assert info.duration == pytest.approx(2.0, abs=0.4)
+
+
+def test_gif_has_no_audio_and_is_downscaled(source, tmp_path):
+    out = media.render([media.Cut(source, 0.0, 2.0)], tmp_path / "out.gif", fmt="gif")
+    info = media.probe(out)
+    assert info.has_video and not info.has_audio
+    assert info.width == 360  # fast 단계 기본 폭
+
+
+def test_gif_rejects_long_output(source, tmp_path, monkeypatch):
+    monkeypatch.setattr(media, "MAX_GIF_SECONDS", 1)
+    with pytest.raises(media.MediaError, match="GIF"):
+        media.render([media.Cut(source, 0.0, 5.0)], tmp_path / "long.gif", fmt="gif")
+
+
+def test_unknown_format_is_rejected(source, tmp_path):
+    with pytest.raises(media.MediaError, match="지원하지 않는"):
+        media.render([media.Cut(source, 0.0, 1.0)], tmp_path / "x.avi", fmt="avi")
 
 
 def test_empty_cut_list_raises(tmp_path):

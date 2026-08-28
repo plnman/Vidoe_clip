@@ -182,7 +182,10 @@ button.tiny { padding: 4px 9px; font-size: 12px; font-weight: 500; }
 .room-legend { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
 
 /* 결과 */
-#resultVideo { width: 100%; border-radius: var(--radius); background: #000; display: block; }
+#resultPreview video, #resultPreview img {
+  width: 100%; border-radius: var(--radius); background: #000; display: block;
+}
+#resultPreview audio { width: 100%; display: block; }
 .markers { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
 .markers button {
   background: var(--surface-2); color: var(--text);

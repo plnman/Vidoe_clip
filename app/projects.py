@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import zipfile
 import threading
 import time
 import uuid
@@ -133,6 +134,7 @@ class Project:
     task: Task = field(default_factory=Task)
     result: Path | None = None
     result_name: str = ""
+    result_format: str = ""
     created_at: float = field(default_factory=time.time)
     touched_at: float = field(default_factory=time.time)
     lock: threading.RLock = field(default_factory=threading.RLock)
@@ -173,7 +175,13 @@ class Project:
             "total_duration": round(sum(c.duration for c in enabled), 3),
             "pending": len(self.pending_cuts()),
             "result": (
-                {"name": self.result_name, "size": self.result.stat().st_size}
+                {
+                    "name": self.result_name,
+                    "size": self.result.stat().st_size,
+                    "format": self.result_format,
+                    # zip은 브라우저에서 재생할 수 없다
+                    "previewable": self.result.suffix.lower() != ".zip",
+                }
                 if self.result and self.result.exists()
                 else None
             ),
@@ -297,13 +305,17 @@ class ProjectStore:
         self._begin(project, "prepare", "소스 준비 중")
         self._pool.submit(self._prepare, project)
 
-    def start_render(self, project: Project, audio_only: bool, quality: str) -> None:
+    def start_render(self, project: Project, fmt: str, quality: str, separate: bool) -> None:
         if not project.enabled_cuts():
             raise ProjectError("구간을 먼저 입력하세요")
         if project.pending_cuts():
             raise ProjectError("아직 받지 않은 구간이 있습니다. 먼저 소스를 준비하세요")
-        self._begin(project, "render", "이어붙이는 중")
-        self._pool.submit(self._render, project, audio_only, quality)
+        try:
+            media.format_spec(fmt)
+        except media.MediaError as exc:
+            raise ProjectError(str(exc)) from exc
+        self._begin(project, "render", "구간별로 저장하는 중" if separate else "이어붙이는 중")
+        self._pool.submit(self._render, project, fmt, quality, separate)
 
     # --- 실행부 -----------------------------------------------------------
     def _needed_ranges(self, project: Project) -> list[tuple[float, float]]:
@@ -394,36 +406,41 @@ class ProjectStore:
         except Exception as exc:  # 예기치 못한 오류도 UI에 남긴다
             self._finish(project, "error", "준비 실패", f"알 수 없는 오류: {exc}")
 
-    def _render(self, project: Project, audio_only: bool, quality: str) -> None:
-        try:
-            preset = config.RENDER_PRESETS.get(quality, config.RENDER_PRESETS["fast"])
-            cuts: list[media.Cut] = []
-            for cut in project.enabled_cuts():
-                clip = project.clip_for(cut)
-                if clip is None:
-                    raise ProjectError("준비되지 않은 구간이 있습니다")
-                cuts.append(
-                    media.Cut(
-                        path=clip.path,
-                        start=max(0.0, cut.start - clip.offset),
-                        end=min(clip.length, cut.end - clip.offset),
-                    )
-                )
+    def _media_cut(self, project: Project, cut: Cut) -> media.Cut:
+        clip = project.clip_for(cut)
+        if clip is None:
+            raise ProjectError("준비되지 않은 구간이 있습니다")
+        return media.Cut(
+            path=clip.path,
+            start=max(0.0, cut.start - clip.offset),
+            end=min(clip.length, cut.end - clip.offset),
+        )
 
-            suffix = ".mp3" if audio_only else ".mp4"
-            out_path = project.dir / f"result{suffix}"
-            media.render(
-                cuts,
-                out_path,
-                audio_only=audio_only,
-                preset=preset["preset"],
-                crf=preset["crf"],
-                on_progress=lambda f: setattr(project.task, "progress", min(0.99, f)),
-                cancel=project.cancel,
-            )
+    def _render(self, project: Project, fmt: str, quality: str, separate: bool) -> None:
+        try:
+            spec = media.format_spec(fmt)
+            cuts = project.enabled_cuts()
+            title = _safe_filename(project.info.title)
+
+            if separate:
+                out_path = self._render_each(project, cuts, fmt, quality, spec["ext"])
+                name = f"{title}_구간{len(cuts)}개.zip"
+            else:
+                out_path = project.dir / f"result{spec['ext']}"
+                media.render(
+                    [self._media_cut(project, cut) for cut in cuts],
+                    out_path,
+                    fmt=fmt,
+                    quality=quality,
+                    on_progress=lambda f: setattr(project.task, "progress", min(0.99, f)),
+                    cancel=project.cancel,
+                )
+                name = f"{title}_편집본{spec['ext']}"
+
             with project.lock:
                 project.result = out_path
-                project.result_name = f"{_safe_filename(project.info.title)}_편집본{suffix}"
+                project.result_name = name
+                project.result_format = fmt
             self._finish(project, "done", "완성했습니다")
         except media.Cancelled:
             self._finish(project, "cancelled", "취소했습니다")
@@ -431,6 +448,44 @@ class ProjectStore:
             self._finish(project, "error", "렌더 실패", str(exc))
         except Exception as exc:
             self._finish(project, "error", "렌더 실패", f"알 수 없는 오류: {exc}")
+
+    def _render_each(self, project, cuts: list[Cut], fmt: str, quality: str, ext: str) -> Path:
+        """구간마다 파일 하나씩 만들어 zip으로 묶는다."""
+        parts_dir = project.dir / "parts"
+        shutil.rmtree(parts_dir, ignore_errors=True)
+        parts_dir.mkdir(parents=True, exist_ok=True)
+
+        total = sum(cut.duration for cut in cuts) or 1.0
+        done = 0.0
+        made: list[Path] = []
+
+        for index, cut in enumerate(cuts, 1):
+            if project.cancel.is_set():
+                raise media.Cancelled("취소되었습니다")
+            label = _safe_filename(cut.title, fallback=format_timecode(cut.start).replace(":", "-"))
+            part = parts_dir / f"{index:02d}_{label}{ext}"
+            project.task.message = f"{index}/{len(cuts)}번째 구간 저장 중"
+
+            def on_progress(fraction: float, base=done, weight=cut.duration) -> None:
+                project.task.progress = min(0.98, (base + fraction * weight) / total)
+
+            media.render(
+                [self._media_cut(project, cut)],
+                part,
+                fmt=fmt,
+                quality=quality,
+                on_progress=on_progress,
+                cancel=project.cancel,
+            )
+            made.append(part)
+            done += cut.duration
+
+        project.task.message = "압축하는 중"
+        archive = project.dir / "result.zip"
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED) as bundle:
+            for part in made:
+                bundle.write(part, arcname=part.name)
+        return archive
 
 
 store = ProjectStore()

@@ -103,6 +103,8 @@ def health() -> dict:
             "max_segments": config.MAX_SEGMENTS,
         },
         "presets": {k: v["label"] for k, v in config.RENDER_PRESETS.items()},
+        "formats": {k: v["label"] for k, v in media.FORMATS.items()},
+        "default_format": media.DEFAULT_FORMAT,
     }
 
 
@@ -141,8 +143,10 @@ class OptionsBody(BaseModel):
 
 
 class RenderBody(BaseModel):
-    audio_only: bool = False
+    format: str = media.DEFAULT_FORMAT
     quality: str = "fast"
+    # 이어붙이지 않고 구간마다 파일 하나씩 만들어 zip으로 준다
+    separate: bool = False
 
 
 # --- API -------------------------------------------------------------------
@@ -212,7 +216,7 @@ def prepare(project_id: str) -> dict:
 def render(project_id: str, body: RenderBody) -> dict:
     project = store.get(project_id)
     try:
-        store.start_render(project, body.audio_only, body.quality)
+        store.start_render(project, body.format, body.quality, body.separate)
     except ProjectError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return project.to_dict()
@@ -244,13 +248,22 @@ def clip_poster(project_id: str, clip_id: str) -> FileResponse:
     return FileResponse(clip.poster, media_type="image/jpeg")
 
 
+_MIME = {
+    ".mp4": "video/mp4", ".webm": "video/webm", ".gif": "image/gif",
+    ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".zip": "application/zip",
+}
+
+
+def _mime_of(path: Path) -> str:
+    return _MIME.get(path.suffix.lower(), "application/octet-stream")
+
+
 @app.get("/api/projects/{project_id}/result", dependencies=[Depends(require_auth)])
 def result_media(project_id: str) -> FileResponse:
     project = store.get(project_id)
     if not project.result or not project.result.exists():
         raise HTTPException(status_code=404, detail="아직 결과물이 없습니다")
-    kind = "audio/mpeg" if project.result.suffix == ".mp3" else "video/mp4"
-    return FileResponse(project.result, media_type=kind)
+    return FileResponse(project.result, media_type=_mime_of(project.result))
 
 
 @app.get("/api/projects/{project_id}/download", dependencies=[Depends(require_auth)])

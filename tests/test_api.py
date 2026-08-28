@@ -87,6 +87,8 @@ def test_health(client):
     body = client.get("/api/health").json()
     assert body["ffmpeg"] is True
     assert body["defaults"]["pad"] == config.DEFAULT_PAD
+    assert body["default_format"] == "mp4"
+    assert {"mp4", "webm", "gif", "mp3"} <= set(body["formats"])
 
 
 def test_index_is_served(client):
@@ -217,16 +219,54 @@ def test_whole_video_mode_downloads_once_and_covers_everything(client):
     assert project["pending"] == 0
 
 
-def test_audio_only_render(client):
+@pytest.mark.parametrize("fmt,suffix", [("mp3", ".mp3"), ("webm", ".webm"), ("gif", ".gif")])
+def test_render_formats(client, fmt, suffix):
     project = make_project(client)
     pid = project["id"]
     client.post(f"/api/projects/{pid}/segments", json={"text": "0:30-0:35 가"})
     client.post(f"/api/projects/{pid}/prepare")
     wait(client, pid)
-    client.post(f"/api/projects/{pid}/render", json={"audio_only": True})
+    client.post(f"/api/projects/{pid}/render", json={"format": fmt})
     project = wait(client, pid)
     assert project["task"]["status"] == "done", project["task"]
-    assert project["result"]["name"].endswith(".mp3")
+    assert project["result"]["name"].endswith(suffix)
+    assert project["result"]["format"] == fmt
+    assert project["result"]["previewable"] is True
+    assert client.get(f"/api/projects/{pid}/download").status_code == 200
+
+
+def test_unknown_format_is_rejected(client):
+    project = make_project(client)
+    pid = project["id"]
+    client.post(f"/api/projects/{pid}/segments", json={"text": "0:30-0:35 가"})
+    client.post(f"/api/projects/{pid}/prepare")
+    wait(client, pid)
+    res = client.post(f"/api/projects/{pid}/render", json={"format": "avi"})
+    assert res.status_code == 409
+    assert "지원하지 않는" in res.json()["detail"]
+
+
+def test_separate_files_are_zipped_one_per_segment(client, tmp_path):
+    import io
+    import zipfile
+
+    project = make_project(client)
+    pid = project["id"]
+    client.post(f"/api/projects/{pid}/segments",
+                json={"text": "0:30-0:35 첫째\n2:00-2:04 둘째"})
+    client.post(f"/api/projects/{pid}/prepare")
+    wait(client, pid)
+
+    client.post(f"/api/projects/{pid}/render", json={"format": "mp4", "separate": True})
+    project = wait(client, pid)
+    assert project["task"]["status"] == "done", project["task"]
+    assert project["result"]["name"].endswith(".zip")
+    assert project["result"]["previewable"] is False
+
+    body = client.get(f"/api/projects/{pid}/download").content
+    with zipfile.ZipFile(io.BytesIO(body)) as bundle:
+        names = sorted(bundle.namelist())
+    assert names == ["01_첫째.mp4", "02_둘째.mp4"]
 
 
 def test_render_before_prepare_is_rejected(client):

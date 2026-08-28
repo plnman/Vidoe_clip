@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const state = {
-  project: null, cards: new Map(), poll: null, resultCuts: [], password: null,
+  project: null, cards: new Map(), poll: null, resultCuts: [], resultUrl: null, resultMedia: null, password: null,
   // 편집은 즉시 화면에 반영하고 서버에는 조금 뒤에 보낸다. 그 사이에 도착한
   // 폴링 응답이 방금 한 편집을 덮어쓰지 않도록 순번으로 비교한다.
   editSeq: 0, syncedSeq: 0,
@@ -516,7 +516,11 @@ async function render() {
     state.resultCuts = state.project.cuts.filter((c) => c.enabled);
     state.project = await api(`/api/projects/${state.project.id}/render`, {
       method: 'POST',
-      body: { audio_only: $('audioOnly').checked, quality: $('quality').value },
+      body: {
+        format: $('format').value,
+        quality: $('quality').value,
+        separate: $('separate').checked,
+      },
     });
     startPolling();
   } catch (err) {
@@ -524,25 +528,66 @@ async function render() {
   }
 }
 
+function fmtSize(bytes) {
+  const mb = (bytes || 0) / (1024 * 1024);
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round((bytes || 0) / 1024))} KB`;
+}
+
+// 포맷에 맞는 미리보기 요소를 만든다. ZIP은 미리 볼 수 없다.
+function buildPreview(result, url) {
+  if (!result.previewable) {
+    const box = document.createElement('div');
+    box.className = 'notice ok';
+    box.textContent = '구간마다 파일 하나씩 만들어 ZIP으로 묶었습니다. 내려받아 압축을 푸세요.';
+    return { element: box, media: null };
+  }
+  if (result.format === 'gif') {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = '완성된 GIF';
+    return { element: img, media: null };
+  }
+  const isAudio = result.format === 'mp3' || result.format === 'm4a';
+  const media = document.createElement(isAudio ? 'audio' : 'video');
+  media.controls = true;
+  media.preload = 'metadata';
+  if (!isAudio) media.playsInline = true;
+  media.src = url;
+  return { element: media, media };
+}
+
 function showResult(project) {
-  const video = $('resultVideo');
-  const url = `/api/projects/${project.id}/result?v=${encodeURIComponent(project.result.size)}`;
-  if (video.getAttribute('src') !== url) video.src = url;
+  const result = project.result;
+  const url = `/api/projects/${project.id}/result?v=${encodeURIComponent(result.size)}`;
+
+  // 폴링 때마다 다시 만들면 재생이 끊긴다. 결과가 바뀔 때만 새로 그린다.
+  if (state.resultUrl !== url) {
+    state.resultUrl = url;
+    const preview = buildPreview(result, url);
+    const box = $('resultPreview');
+    box.innerHTML = '';
+    box.appendChild(preview.element);
+    state.resultMedia = preview.media;
+  }
+
   $('downloadLink').href = `/api/projects/${project.id}/download`;
-  $('downloadLink').setAttribute('download', project.result.name);
+  $('downloadLink').setAttribute('download', result.name);
+  $('resultInfo').textContent = `${result.name} · ${fmtSize(result.size)}`;
 
   const markers = $('resultMarkers');
   markers.innerHTML = '';
-  let offset = 0;
-  state.resultCuts.forEach((cut, index) => {
-    const at = offset;
-    const button = document.createElement('button');
-    button.textContent = `${index + 1}. ${cut.title || fmt(cut.start, false)}`;
-    button.title = `완성본 ${fmt(at, false)}부터`;
-    button.onclick = () => { video.currentTime = at + 0.05; video.play(); };
-    markers.appendChild(button);
-    offset += cut.duration;
-  });
+  if (state.resultMedia) {
+    let offset = 0;
+    state.resultCuts.forEach((cut, index) => {
+      const at = offset;
+      const button = document.createElement('button');
+      button.textContent = `${index + 1}. ${cut.title || fmt(cut.start, false)}`;
+      button.title = `완성본 ${fmt(at, false)}부터`;
+      button.onclick = () => { state.resultMedia.currentTime = at + 0.05; state.resultMedia.play(); };
+      markers.appendChild(button);
+      offset += cut.duration;
+    });
+  }
 
   show($('resultBox'), true);
 }
@@ -553,6 +598,14 @@ async function init() {
   try {
     const health = await api('/api/health');
     if (!health.ffmpeg) notice($('health'), health.error);
+    const formatSelect = $('format');
+    for (const [value, label] of Object.entries(health.formats || {})) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      option.selected = value === health.default_format;
+      formatSelect.appendChild(option);
+    }
     $('pad').value = health.defaults.pad;
     $('pad').max = health.defaults.max_pad;
     $('height').value = String(health.defaults.height);

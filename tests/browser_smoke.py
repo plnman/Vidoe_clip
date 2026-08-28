@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 
 from playwright.sync_api import expect, sync_playwright
@@ -54,6 +55,8 @@ def main() -> int:
         page.locator(".cut").nth(2).locator(".on").uncheck()
         expect(page.locator("#editSummary")).to_contain_text("36초")
 
+        # 저장 형식 목록이 서버에서 채워졌는지
+        expect(page.locator("#format option")).to_have_count(6)
         page.click("#renderBtn")
         expect(page.locator("#resultBox")).to_be_visible(timeout=120_000)
         expect(page.locator("#resultMarkers button")).to_have_count(2)
@@ -61,7 +64,15 @@ def main() -> int:
         expect(page.locator("#editSummary")).to_contain_text("36초")
         expect(page.locator(".cut").nth(2).locator(".on")).not_to_be_checked()
         assert "/download" in page.locator("#downloadLink").get_attribute("href")
+        expect(page.locator("#resultPreview video")).to_be_visible()
+        expect(page.locator("#resultInfo")).to_contain_text("MB")
         page.screenshot(path="/tmp/clipper-result.png", full_page=True)
+
+        # 형식을 GIF로 바꿔 다시 만들면 미리보기가 이미지로 바뀐다
+        page.select_option("#format", "gif")
+        page.click("#renderBtn")
+        expect(page.locator("#resultPreview img")).to_be_visible(timeout=120_000)
+        expect(page.locator("#downloadLink")).to_have_attribute("download", re.compile(r"\.gif$"))
 
         # 결과물이 실제로 받아지는지 (재생 자체는 확인하지 않는다 —
         # 오픈소스 크로미움에는 H.264 디코더가 없어 미리보기가 비어 보인다)
