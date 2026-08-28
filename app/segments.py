@@ -28,6 +28,8 @@ _LIST_MARKER_RE = re.compile(r"^\s*(?:[-*•·▪]|\(?\d{1,3}[.)])\s+")
 _TABLE_SEP_RE = re.compile(r"^[\s|:\-–—=+]+$")
 _TRIM = " \t\r\n-–—:|[](){}\"'`·•*#>,.…"
 _TAIL_KO = ("까지", "부터")
+# "8:00부터 9:15까지 제목" 처럼 쓰면 범위를 떼고 난 자리에 조사가 남는다
+_LEAD_KO_RE = re.compile(r"^(?:까지|부터)(?=\s|$)\s*")
 
 
 @dataclass
@@ -104,7 +106,7 @@ def format_timecode(seconds: float) -> str:
 def _clean_title(*chunks: str) -> str:
     parts = []
     for chunk in chunks:
-        t = chunk.strip().strip(_TRIM).strip()
+        t = _LEAD_KO_RE.sub("", chunk.strip().strip(_TRIM).strip())
         for tail in _TAIL_KO:
             if t.endswith(tail):
                 t = t[: -len(tail)].strip(_TRIM).strip()

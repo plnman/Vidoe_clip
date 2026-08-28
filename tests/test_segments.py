@@ -71,6 +71,24 @@ def test_title_before_range():
     assert result.segments[0].title == "인트로"
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        "8:00 - 9:15 반론과 재반박",
+        "8:00-9:15 반론과 재반박",
+        "8:00 ~ 9:15 반론과 재반박",
+        "| 8:00 | 9:15 | 반론과 재반박 |",
+        "| 8:00 - 9:15 | 반론과 재반박 |",
+        "8:00부터 9:15까지 반론과 재반박",
+        "- 8:00 -> 9:15 반론과 재반박",
+    ],
+)
+def test_all_spellings_of_a_range_mean_the_same_thing(line):
+    """구분자가 무엇이든( - | ~ 부터/까지 ) 결과는 같아야 한다."""
+    segment = parse_segments(line).segments[0]
+    assert (segment.start, segment.end, segment.title) == (480, 555, "반론과 재반박")
+
+
 def test_markdown_table():
     text = """
     | 시작 | 종료 | 내용 |
