@@ -102,7 +102,29 @@ set CLIPPER_PASSWORD=원하는비밀번호 && run.bat --share  # Windows
 VPS에 올릴 거라면 쿠키 설정이 사실상 필수입니다(바로 아래 참고).
 집 PC가 있다면 방법 B가 더 안정적입니다.
 
-### 유튜브가 막을 때 (쿠키)
+### 잘 안 되면 — 진단부터
+
+앱에서 오류가 났을 때, 어느 단계에서 막혔는지 한 번에 찍어 주는 명령이 있습니다.
+짧은 영상 아무거나 하나로 돌려 보세요.
+
+```bash
+./.venv/bin/python -m app.doctor "https://youtu.be/영상ID"
+```
+
+```
+[ OK ] ffmpeg 설치           ffmpeg version 6.1.1
+[ OK ] yt-dlp 버전           2026.08.19
+[ OK ] 링크 해석             https://www.youtube.com/watch?v=...
+[ OK ] 영상 정보 조회        제목 · 12:34
+[ OK ] 구간 다운로드         probe.mp4 · 830 KB
+[ OK ] 받은 파일 확인        1280x720 30fps 5.0초 (요청 5초)
+[ OK ] 잘라 이어붙이기       412 KB · 3.0초 (기대 3.0초)
+```
+
+실제로 5초를 받아 잘라 붙이는 것까지 해 봅니다. 실패하면 그 줄에 원인과 대처가 같이 나옵니다.
+막히면 이 출력을 그대로 복사해서 물어보시면 됩니다. 화질을 바꿔 보려면 `--height 480`.
+
+## 유튜브가 막을 때 (쿠키)
 
 `Sign in to confirm you're not a bot` 오류가 나면 로그인 쿠키를 넘겨야 합니다.
 브라우저 확장(예: "Get cookies.txt")으로 넷스케이프 형식 쿠키를 뽑아 저장한 뒤:

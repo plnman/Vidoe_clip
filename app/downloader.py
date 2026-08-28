@@ -19,6 +19,9 @@ from yt_dlp.utils import DownloadError, download_range_func
 from . import config
 
 _VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+# yt-dlp가 오류 끝에 붙이는 "깃허브에 제보하세요" 안내. 사용자에게는 쓸모없다.
+_NOISE_RE = re.compile(r"[;.]?\s*please report this issue.*", re.IGNORECASE | re.DOTALL)
+_CAUSED_BY_RE = re.compile(r"\s*\(caused by .*?\)", re.DOTALL)
 _PATH_ID_ROUTES = ("/shorts/", "/embed/", "/live/", "/v/")
 
 
@@ -96,8 +99,21 @@ def _format_selector(max_height: int, prefer: str) -> tuple[str, list[str]]:
     return fmt, sort
 
 
+class _Silent:
+    """yt-dlp가 콘솔에 직접 찍지 않게 한다. 오류는 예외로 받아 화면에 띄운다."""
+
+    def debug(self, message): pass
+
+    def info(self, message): pass
+
+    def warning(self, message): pass
+
+    def error(self, message): pass
+
+
 def _base_opts() -> dict:
     opts: dict = {
+        "logger": _Silent(),
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
@@ -117,20 +133,40 @@ def _base_opts() -> dict:
 
 
 def _friendly(exc: Exception) -> str:
+    """yt-dlp 원문 오류를 사람이 읽고 대처할 수 있는 한 줄로 바꾼다."""
     text = str(exc)
-    if "Sign in to confirm" in text or "bot" in text.lower():
+    lowered = text.lower()
+
+    # "Sign in to confirm your age"와 겹치므로 봇 쪽은 'not a bot'으로 좁힌다
+    if "not a bot" in lowered:
         return (
-            "유튜브가 봇으로 판단해 막았습니다. 쿠키 파일을 설정하세요 "
-            "(CLIPPER_COOKIES 환경변수). README의 '유튜브가 막을 때' 참고."
+            "유튜브가 이 컴퓨터를 봇으로 판단해 막았습니다. 브라우저 쿠키를 넘기면 풀립니다 "
+            "(CLIPPER_COOKIES). README의 '유튜브가 막을 때' 참고."
         )
-    if "Private video" in text:
+    if "tunnel connection failed" in lowered or "proxyerror" in lowered:
+        return "네트워크가 유튜브 접속을 막고 있습니다(프록시/방화벽). 다른 망에서 시도해 보세요."
+    if "urlopen error" in lowered or "connection" in lowered and "refused" in lowered:
+        return "유튜브에 연결하지 못했습니다. 인터넷 연결을 확인하세요."
+    if "timed out" in lowered or "timeout" in lowered:
+        return "유튜브 응답이 너무 느립니다. 잠시 후 다시 시도하세요."
+    if "private video" in lowered:
         return "비공개 영상입니다"
-    if "Video unavailable" in text:
-        return "볼 수 없는 영상입니다(삭제/지역 제한)"
-    if "members-only" in text.lower():
+    if "members-only" in lowered or "members only" in lowered:
         return "멤버십 전용 영상입니다"
+    if "confirm your age" in lowered or "age-restricted" in lowered or "age restricted" in lowered:
+        return "연령 제한 영상입니다. 로그인 쿠키(CLIPPER_COOKIES)가 필요합니다."
+    # 'not available'이 겹치므로 화질 쪽을 먼저 본다
+    if "requested format" in lowered:
+        return "고른 화질로 받을 수 없습니다. 화질을 낮춰 보세요."
+    if "video unavailable" in lowered or "not available" in lowered:
+        return "볼 수 없는 영상입니다(삭제됐거나 지역 제한)"
+
+    # 알려진 경우가 아니면 원문을 쓰되, 잡음은 걷어낸다
+    text = _NOISE_RE.sub("", text)
+    text = _CAUSED_BY_RE.sub("", text)
     text = re.sub(r"^ERROR:\s*", "", text.strip())
-    return text[:300] or "다운로드에 실패했습니다"
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:240] or "다운로드에 실패했습니다"
 
 
 def probe_url(url: str) -> VideoInfo:
