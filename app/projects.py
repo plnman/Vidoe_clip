@@ -105,6 +105,9 @@ class Task:
     kind: str = ""
     status: str = "idle"  # idle | running | done | error | cancelled
     progress: float = 0.0
+    # 구간만 받을 때 yt-dlp는 ffmpeg에 맡기고, 그쪽은 바이트 진행률을 주지 않는다.
+    # 그럴 때 0%에 멈춘 것처럼 보이지 않도록 화면에 따로 알린다.
+    indeterminate: bool = False
     message: str = ""
     error: str = ""
     updated_at: float = field(default_factory=time.time)
@@ -114,6 +117,7 @@ class Task:
             "kind": self.kind,
             "status": self.status,
             "progress": round(self.progress, 4),
+            "indeterminate": self.indeterminate,
             "message": self.message,
             "error": self.error,
         }
@@ -364,9 +368,12 @@ class ProjectStore:
                 )
 
                 def on_progress(fraction: float, base=done_weight, weight=weights[index]) -> None:
+                    project.task.indeterminate = False
                     project.task.progress = min(0.99, (base + fraction * weight) / total_weight)
 
                 project.task.message = label
+                # 진행률이 올지 안 올지는 받아 봐야 안다. 일단 모른다고 표시해 둔다.
+                project.task.indeterminate = True
                 path = downloader.fetch_range(
                     project.url,
                     project.dir,
@@ -390,6 +397,8 @@ class ProjectStore:
                 with project.lock:
                     project.clips[clip.id] = clip
                 done_weight += weights[index]
+                project.task.indeterminate = False
+                project.task.progress = min(0.99, done_weight / total_weight)
 
             remaining = len(project.pending_cuts())
             if remaining:

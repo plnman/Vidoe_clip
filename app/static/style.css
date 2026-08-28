@@ -143,6 +143,10 @@ button.tiny { padding: 4px 9px; font-size: 12px; font-weight: 500; }
 .progress { margin-top: 14px; }
 .bar { height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width 0.25s; }
+/* 진행률을 알 수 없는 단계 — 멈춘 것처럼 보이지 않게 흐르는 막대로 */
+.bar.unknown > i { width: 35%; transition: none; animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .bar.unknown > i { animation: none; width: 100%; opacity: 0.4; } }
 .progress .label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
 .progress .label span:last-child { font-variant-numeric: tabular-nums; color: var(--muted); }
 

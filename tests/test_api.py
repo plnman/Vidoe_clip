@@ -269,6 +269,36 @@ def test_separate_files_are_zipped_one_per_segment(client, tmp_path):
     assert names == ["01_첫째.mp4", "02_둘째.mp4"]
 
 
+def test_prepare_marks_progress_unknown_when_downloader_is_silent(client, monkeypatch):
+    """구간 다운로드는 진행률을 안 줄 수 있다. 그때는 화면에 그렇다고 알려야 한다."""
+    silent_calls = []
+
+    def silent_fetch(url, dest_dir, name, *, start=None, end=None, on_progress=None, **kwargs):
+        silent_calls.append((start, end))
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        return _synth(dest_dir / f"{name}.mp4", round((end - start) if start is not None else 5, 2))
+
+    monkeypatch.setattr(projects.downloader, "fetch_range", silent_fetch)
+
+    project = make_project(client)
+    pid = project["id"]
+    client.post(f"/api/projects/{pid}/segments", json={"text": "0:30-0:35 가"})
+    client.post(f"/api/projects/{pid}/prepare")
+
+    saw_unknown = False
+    for _ in range(200):
+        task = client.get(f"/api/projects/{pid}").json()["task"]
+        saw_unknown = saw_unknown or (task["status"] == "running" and task["indeterminate"])
+        if task["status"] != "running":
+            break
+        time.sleep(0.02)
+
+    project = client.get(f"/api/projects/{pid}").json()
+    assert project["task"]["status"] == "done"
+    assert saw_unknown, "진행률을 모르는 동안 화면에 알리지 않았습니다"
+    assert project["task"]["indeterminate"] is False
+
+
 def test_render_before_prepare_is_rejected(client):
     project = make_project(client)
     pid = project["id"]

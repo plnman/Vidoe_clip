@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -47,8 +48,9 @@ def fake_probe(url: str) -> downloader.VideoInfo:
 def fake_fetch(url, dest_dir, name, *, start=None, end=None, on_progress=None, **kwargs):
     dest_dir.mkdir(parents=True, exist_ok=True)
     length = SOURCE_DURATION if start is None else (end - start)
-    for step in (0.3, 0.7, 1.0):
-        if on_progress:
+    # CLIPPER_FAKE_SILENT=1 이면 진행률을 주지 않는다 — 실제 구간 다운로드와 같은 상황
+    if on_progress and not os.environ.get("CLIPPER_FAKE_SILENT"):
+        for step in (0.3, 0.7, 1.0):
             on_progress(step)
     return _synth(dest_dir / f"{name}.mp4", round(length, 2))
 

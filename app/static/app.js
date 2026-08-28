@@ -195,6 +195,14 @@ function stopPolling() {
 
 /* ---------- 화면 갱신 ---------- */
 
+// 진행률을 모르는 단계에서는 퍼센트 대신 흐르는 막대를 보여준다.
+function setBar(bar, percentLabel, task) {
+  const unknown = task.status === 'running' && task.indeterminate;
+  bar.parentElement.classList.toggle('unknown', unknown);
+  bar.style.width = unknown ? '' : `${task.progress * 100}%`;
+  percentLabel.textContent = unknown ? '진행률 표시 없음' : `${Math.round(task.progress * 100)}%`;
+}
+
 function applyProject(project, seqAtRequest = state.editSeq) {
   // 서버 응답의 구간 정보는 '보낸 뒤 편집이 없었고, 못 보낸 편집도 없을 때'만 믿는다.
   const cutsAreStale = hasUnsyncedEdits() || seqAtRequest !== state.editSeq;
@@ -214,8 +222,7 @@ function applyProject(project, seqAtRequest = state.editSeq) {
   $('prepareBtn').disabled = running;
   if (isPrepare) {
     $('prepareMsg').textContent = task.message;
-    $('preparePct').textContent = `${Math.round(task.progress * 100)}%`;
-    $('prepareBar').style.width = `${task.progress * 100}%`;
+    setBar($('prepareBar'), $('preparePct'), task);
     notice($('prepareError'), task.status === 'error' ? task.error : '');
   }
 
@@ -226,8 +233,7 @@ function applyProject(project, seqAtRequest = state.editSeq) {
   $('renderBtn').disabled = running || project.pending > 0;
   if (isRender) {
     $('renderMsg').textContent = task.message;
-    $('renderPct').textContent = `${Math.round(task.progress * 100)}%`;
-    $('renderBar').style.width = `${task.progress * 100}%`;
+    setBar($('renderBar'), $('renderPct'), task);
     notice($('renderError'), task.status === 'error' ? task.error : '');
   }
 
