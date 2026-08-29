@@ -15,7 +15,7 @@
 - 내 영상 파일 소스 — 같은 영상으로 19.0초 완성본
 - 묶은 앱 — ffmpeg·node가 **전혀 없는 PATH**에서 위 전 과정 완주
 - quickjs만으로 유튜브 챌린지 통과(node/deno 없이)
-- 테스트 160개
+- 테스트 162개
 
 무언가 안 될 때 첫 명령은 여전히 이것이다. 어느 단계에서 막혔는지 한 줄로 나온다:
 
@@ -107,7 +107,7 @@
 ./run.sh --lan           # 같은 공유기의 다른 기기에서도
 CLIPPER_PASSWORD=x ./run.sh --share   # 공개 https 주소 (cloudflared 필요)
 
-pytest                   # 160개. 유튜브 접속 없이 전부 실제로 돌린다
+pytest                   # 162개. 유튜브 접속 없이 전부 실제로 돌린다
 python -m app.desktop    # 데스크톱 형태로 (pywebview 필요, --browser로 대체 가능)
 ```
 

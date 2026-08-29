@@ -107,12 +107,14 @@
         <input type="number" id="pad" min="0" max="120" step="5" value="10">
       </div>
       <div style="align-self:end">
-        <label class="check"><input type="checkbox" id="whole"> 전체 영상 받기</label>
+        <label class="check"><input type="checkbox" id="whole" checked> 전체 영상 받기 (빠름)</label>
       </div>
     </div>
     <p class="hint">
       여유분만큼 앞뒤를 더 받아둡니다. 그 범위 안에서는 시작·끝을 고쳐도 다시 받지 않습니다.
-      영상 전체를 자유롭게 편집하려면 ‘전체 영상 받기’를 켜세요(느리고 용량이 큽니다).
+      쓸 구간이 조금이라도 많으면 <b>전체 영상 받기</b>가 훨씬 빠릅니다 — 구간만 받을 때는
+      연결 하나로 받아 유튜브가 속도를 조이고, 전체 받기는 여러 조각을 동시에 받습니다.
+      용량은 크지만 그다음부터는 어디를 고쳐도 다시 받지 않습니다.
     </p>
     </div>
     <div id="wholeAdvice" class="notice warn" hidden></div>

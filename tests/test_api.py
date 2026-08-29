@@ -128,8 +128,9 @@ def test_full_flow_prepare_edit_render_download(client):
     assert project["pending"] == 3
     assert project["total_duration"] == 30
 
-    # 이 테스트는 여유분 동작 자체를 본다. 기본값이 바뀌어도 흔들리지 않게 고정한다.
-    client.patch(f"/api/projects/{pid}/options", json={"pad": 10})
+    # 이 테스트는 구간 받기와 여유분 동작 자체를 본다.
+    # 기본값(전체 받기, 여유분 2초)이 바뀌어도 흔들리지 않게 고정한다.
+    client.patch(f"/api/projects/{pid}/options", json={"pad": 10, "whole": False})
 
     client.post(f"/api/projects/{pid}/prepare")
     project = wait(client, pid)
@@ -175,12 +176,15 @@ def test_editing_beyond_pad_marks_cut_stale_and_refetches(client):
     project = make_project(client)
     pid = project["id"]
     client.post(f"/api/projects/{pid}/segments", json={"text": "1:00-1:10 하나"})
+    # 여유분 밖으로 나갔을 때 그 구간만 다시 받는지를 보는 테스트다.
+    # 전체 받기가 기본이면 애초에 다시 받을 일이 없으므로 구간 받기로 고정한다.
+    client.patch(f"/api/projects/{pid}/options", json={"whole": False})
     client.post(f"/api/projects/{pid}/prepare")
     project = wait(client, pid)
     assert project["cuts"][0]["room_before"] == pytest.approx(config.DEFAULT_PAD, abs=1.0)
 
     cuts = project["cuts"]
-    cuts[0]["start"] = 10.0  # 여유분 10초를 훨씬 넘어섬
+    cuts[0]["start"] = 10.0  # 여유분을 훨씬 넘어섬
     project = client.patch(f"/api/projects/{pid}/cuts", json={"cuts": cuts}).json()
     assert project["pending"] == 1
     assert project["cuts"][0]["ready"] is False
@@ -199,7 +203,7 @@ def test_overlapping_needs_are_downloaded_once(client):
     # 두 구간이 여유분까지 합치면 붙는다 -> 한 번만 받아야 한다
     client.post(f"/api/projects/{pid}/segments", json={"text": "1:00-1:10 가\n1:15-1:25 나"})
     # 여유분 동작 자체를 보는 테스트다. 기본값이 바뀌어도 흔들리지 않게 고정한다.
-    client.patch(f"/api/projects/{pid}/options", json={"pad": 10})
+    client.patch(f"/api/projects/{pid}/options", json={"pad": 10, "whole": False})
     client.post(f"/api/projects/{pid}/prepare")
     project = wait(client, pid)
     assert project["pending"] == 0
@@ -339,3 +343,40 @@ def test_delete_project_removes_files(client):
     client.delete(f"/api/projects/{pid}")
     assert not directory.exists()
     assert client.get(f"/api/projects/{pid}").status_code == 404
+
+
+# --- 전체 받기가 기본 -------------------------------------------------------
+
+def test_whole_download_is_the_default(client):
+    """구간 받기는 연결 하나로만 받아 유튜브가 조인다. 전체 받기가 수십 배 빠르다.
+
+    DESIGN.md D1의 '적게 받으니 빠르다'가 실측으로 뒤집힌 자리다.
+    """
+    project = make_project(client)
+    pid = project["id"]
+    assert project["options"]["whole"] is True
+
+    client.post(f"/api/projects/{pid}/segments", json={"text": "1:00-1:10 가\n4:00-4:10 나"})
+    client.post(f"/api/projects/{pid}/prepare")
+    project = wait(client, pid)
+
+    assert project["task"]["status"] == "done", project["task"]
+    assert project["pending"] == 0
+    # 구간이 둘이어도 통째로 한 번만 받는다
+    assert client.fetch_calls == [(None, None)]
+
+
+def test_whole_download_leaves_every_cut_editable(client):
+    """전체를 받아두면 여유분이라는 개념 자체가 없어진다 — 어디로 옮겨도 그대로 쓴다."""
+    project = make_project(client)
+    pid = project["id"]
+    client.post(f"/api/projects/{pid}/segments", json={"text": "1:00-1:10 하나"})
+    client.post(f"/api/projects/{pid}/prepare")
+    project = wait(client, pid)
+
+    cuts = project["cuts"]
+    cuts[0]["start"], cuts[0]["end"] = 5.0, 290.0  # 영상 거의 전체로 늘려도
+    project = client.patch(f"/api/projects/{pid}/cuts", json={"cuts": cuts}).json()
+    assert project["pending"] == 0
+    assert project["cuts"][0]["ready"] is True
+    assert len(client.fetch_calls) == 1, "다시 받을 일이 없어야 한다"

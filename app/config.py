@@ -99,6 +99,34 @@ MAX_PAD = _int("CLIPPER_MAX_PAD", 120)
 
 DEFAULT_HEIGHT = _int("CLIPPER_DEFAULT_HEIGHT", 1080)
 
+# 받을 양이 영상의 이 비율을 넘으면 통째로 받는 편이 빠르다.
+#
+# 두 경로의 속도가 구조적으로 다르기 때문이다. 전체 받기는 yt-dlp의 조각 다운로더가
+# 여러 연결로 동시에 받는다. 구간 받기는 ffmpeg 한 프로세스가 단일 연결로 받는데,
+# 유튜브는 단일 연결을 심하게 조인다. 실측(2026-08-29, 31분 영상):
+#
+#     전체 31:44 · 249MB  →  17.9초   (14 MB/s)
+#     구간 30초          →  20.0초   (0.17 MB/s)
+#
+# 영상 전체를 받는 것이 30초 구간 하나보다 빨랐다. 이 비율이면 손익분기가 1%대라
+# 사실상 거의 언제나 전체 받기가 이긴다. 그래도 아주 긴 영상에서 몇 초만 쓰는 경우는
+# 있으므로 여유를 두고 잡는다.
+WHOLE_FASTER_ABOVE = float(os.environ.get("CLIPPER_WHOLE_FASTER_ABOVE", "") or 0.08)
+
+# 그래서 기본이 '전체 받기'다.
+#
+# 사용자가 얻는 것으로 따지면 두 방식의 차이는 이것뿐이다.
+#
+#            받는 시간        디스크        편집 자유도     결과물
+#   전체     훨씬 짧다        영상 전체     영상 어디든     같다
+#   구간     훨씬 길다        구간만        여유분 안에서   같다
+#
+# 손해는 디스크뿐이고 그건 작업 폴더에서 지우면 된다. 시간은 되돌릴 수 없다.
+# 아주 긴 영상에서 몇 초만 쓰는 경우를 위해 끌 수는 있게 남겨둔다.
+DEFAULT_WHOLE = (os.environ.get("CLIPPER_DEFAULT_WHOLE", "") or "1").strip().lower() not in (
+    "0", "false", "no",
+)
+
 RENDER_PRESETS = {
     "fast": {"preset": "veryfast", "crf": 23, "label": "빠름"},
     "balanced": {"preset": "medium", "crf": 20, "label": "균형"},

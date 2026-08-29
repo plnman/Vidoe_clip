@@ -120,6 +120,8 @@ def health(request: Request) -> dict:
             "max_pad": config.MAX_PAD,
             "height": config.DEFAULT_HEIGHT,
             "max_segments": config.MAX_SEGMENTS,
+            "whole_faster_above": config.WHOLE_FASTER_ABOVE,
+            "whole": config.DEFAULT_WHOLE,
         },
         "presets": {k: v["label"] for k, v in config.RENDER_PRESETS.items()},
         "formats": {k: v["label"] for k, v in media.FORMATS.items()},

@@ -5,6 +5,8 @@ const state = {
   project: null, cards: new Map(), poll: null, resultCuts: [], resultUrl: null, resultMedia: null, password: null,
   // 앱 창이면 OS 파일 선택 창을 쓸 수 있다. 브라우저면 파일을 올려야 한다.
   filePicker: false, savedPath: null,
+  // 받을 양이 영상의 이 비율을 넘으면 전체 받기가 더 빠르다. 서버가 알려준다.
+  wholeFasterAbove: 0.08,
   // 편집은 즉시 화면에 반영하고 서버에는 조금 뒤에 보낸다. 그 사이에 도착한
   // 폴링 응답이 방금 한 편집을 덮어쓰지 않도록 순번으로 비교한다.
   editSeq: 0, syncedSeq: 0,
@@ -339,7 +341,10 @@ function setBar(bar, percentLabel, task) {
   const unknown = task.status === 'running' && task.indeterminate;
   bar.parentElement.classList.toggle('unknown', unknown);
   bar.style.width = unknown ? '' : `${task.progress * 100}%`;
-  percentLabel.textContent = unknown ? '진행률 표시 없음' : `${Math.round(task.progress * 100)}%`;
+  // 퍼센트를 모를 때도 받은 용량은 말해줄 수 있다. '멈춤'과 '받는 중'이 구분된다.
+  percentLabel.textContent = unknown
+    ? (task.detail || '시작하는 중…')
+    : `${Math.round(task.progress * 100)}%`;
 }
 
 function applyProject(project, seqAtRequest = state.editSeq) {
@@ -388,34 +393,34 @@ function applyProject(project, seqAtRequest = state.editSeq) {
   }
 }
 
-// 구간 다운로드는 정확한 컷을 위해 재인코딩을 한다 — 느리다. 받을 양이 영상의 절반을
-// 넘어가면 전체를 통째로 받는 편이 실제로 더 빠르다(그쪽은 재인코딩이 없다).
-const WHOLE_IS_FASTER_ABOVE = 0.5;
-
+// 구간 받기는 ffmpeg 한 프로세스가 단일 연결로 받는데 유튜브가 그걸 심하게 조인다.
+// 전체 받기는 조각 여러 개를 동시에 받아 수십 배 빠르다. 그래서 조금만 많이 쓰면
+// 통째로 받는 쪽이 이긴다 — 켜야 할 상황이면 켜 두고, 왜 그랬는지 말해준다.
 function adviseWholeDownload(project) {
   const box = $('wholeAdvice');
   const span = project.source_span || 0;
   const duration = project.video.duration || 0;
   const busy = project.task.status === 'running';
 
-  if (project.source === 'file' || project.options.whole || busy || !duration || !span) {
+  // 기본이 전체 받기다. 일부러 끈 사람에게만, 그게 손해인 경우에 말해준다.
+  if (project.source === 'file' || busy || !duration || !span || $('whole').checked) {
     show(box, false);
     return;
   }
+
   const share = span / duration;
-  if (share < WHOLE_IS_FASTER_ABOVE) { show(box, false); return; }
+  if (share < state.wholeFasterAbove) { show(box, false); return; }
 
   box.innerHTML =
-    `받아야 할 양이 영상의 <b>${Math.round(share * 100)}%</b>입니다. ` +
-    `구간별로 받으면 컷을 정확히 맞추려고 <b>구간마다 재인코딩</b>을 하기 때문에 느립니다. ` +
-    `이만큼이면 <b>전체 영상 받기</b>가 더 빠르고, 그다음부터는 어디를 고쳐도 다시 받지 않습니다. `;
+    `구간만 받도록 꺼두셨는데, 받을 양이 영상의 <b>${Math.round(share * 100)}%</b>입니다. ` +
+    `구간 받기는 연결 하나로만 받아 유튜브가 속도를 조입니다 — 이 정도 분량이면 ` +
+    `<b>전체 받기가 수십 배 빠릅니다.</b> 결과물과 편집은 똑같고 디스크만 더 씁니다. `;
   const button = document.createElement('button');
   button.className = 'tiny';
-  button.textContent = '전체 영상 받기로 바꾸기';
+  button.textContent = '전체 영상 받기로 되돌리기';
   button.onclick = () => {
     $('whole').checked = true;
     show(box, false);
-    $('prepareBtn').scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
   box.appendChild(button);
   show(box, true);
@@ -876,6 +881,10 @@ async function init() {
     $('pad').value = health.defaults.pad;
     $('pad').max = health.defaults.max_pad;
     $('height').value = String(health.defaults.height);
+    if (health.defaults.whole_faster_above) {
+      state.wholeFasterAbove = health.defaults.whole_faster_above;
+    }
+    $('whole').checked = health.defaults.whole !== false;
     bindFileSource(health);
     bindMaintenance(health);
   } catch (err) {

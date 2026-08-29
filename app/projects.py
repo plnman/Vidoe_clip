@@ -156,6 +156,8 @@ class Task:
     indeterminate: bool = False
     message: str = ""
     error: str = ""
+    # 퍼센트를 모를 때라도 "얼마나 받았는지"는 보여줄 수 있다. 멈춘 것과 구분되게.
+    detail: str = ""
     updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
@@ -165,6 +167,7 @@ class Task:
             "progress": round(self.progress, 4),
             "indeterminate": self.indeterminate,
             "message": self.message,
+            "detail": self.detail,
             "error": self.error,
         }
 
@@ -180,7 +183,7 @@ class Project:
     max_height: int = config.DEFAULT_HEIGHT
     prefer: str = "compat"
     pad: float = config.DEFAULT_PAD
-    whole: bool = False
+    whole: bool = config.DEFAULT_WHOLE
     clips: dict[str, Clip] = field(default_factory=dict)
     cuts: list[Cut] = field(default_factory=list)
     task: Task = field(default_factory=Task)
@@ -513,20 +516,34 @@ class ProjectStore:
                     project.task.indeterminate = False
                     project.task.progress = min(0.99, (base + fraction * weight) / total_weight)
 
+                def on_bytes(size: int, rate: float) -> None:
+                    # 퍼센트가 없어도 이만큼은 말해줄 수 있다. 멈춤과 구분되는 유일한 신호다.
+                    project.task.detail = f"{size / 1e6:.1f} MB 받음 · {rate / 1e6:.1f} MB/s"
+
                 project.task.message = label
+                project.task.detail = ""
                 # 진행률이 올지 안 올지는 받아 봐야 안다. 일단 모른다고 표시해 둔다.
                 project.task.indeterminate = True
-                path = downloader.fetch_range(
-                    project.url,
-                    project.dir,
-                    _new_id("f_"),
-                    start=start,
-                    end=end,
-                    max_height=project.max_height,
-                    prefer=project.prefer,
-                    on_progress=on_progress,
-                    cancel=project.cancel,
-                )
+                try:
+                    path = downloader.fetch_range(
+                        project.url,
+                        project.dir,
+                        _new_id("f_"),
+                        start=start,
+                        end=end,
+                        max_height=project.max_height,
+                        prefer=project.prefer,
+                        on_progress=on_progress,
+                        on_bytes=on_bytes,
+                        cancel=project.cancel,
+                    )
+                except downloader.Stalled:
+                    # 구간 받기는 연결 하나로만 받아서 유튜브가 조이면 그대로 멈춘다.
+                    # 전체 받기는 조각을 동시에 받는 다른 길이라 대개 멀쩡히 끝난다.
+                    # 사용자를 세워두지 말고 그쪽으로 갈아탄다.
+                    if need is None or project.whole:
+                        raise
+                    return self._fall_back_to_whole(project)
                 probed = media.probe(path)
                 clip = Clip(
                     id=_new_id("m_"),
@@ -556,6 +573,55 @@ class ProjectStore:
             self._finish(project, "error", "준비 실패", str(exc))
         except Exception as exc:  # 예기치 못한 오류도 UI에 남긴다
             self._finish(project, "error", "준비 실패", f"알 수 없는 오류: {exc}")
+
+    def _fall_back_to_whole(self, project: Project) -> None:
+        """구간 받기가 멈췄을 때 전체 받기로 갈아탄다.
+
+        두 경로는 아예 다른 코드를 탄다 — 구간은 ffmpeg 단일 연결, 전체는 조각
+        여러 개 동시. 앞쪽이 막혔다고 뒤쪽이 막히는 것이 아니고, 실측으로 전체 받기가
+        훨씬 빠르다(DESIGN.md D1). 사용자를 몇 분씩 세워두느니 갈아타는 편이 낫다.
+        """
+        with project.lock:
+            project.whole = True
+        project.cancel = threading.Event()  # 감시자가 켜둔 취소 신호를 되돌린다
+        project.task.message = "구간 받기가 멈춰 전체 영상 받기로 바꿉니다"
+        project.task.detail = ""
+        project.task.indeterminate = True
+
+        def on_bytes(size: int, rate: float) -> None:
+            project.task.detail = f"{size / 1e6:.1f} MB 받음 · {rate / 1e6:.1f} MB/s"
+
+        def on_progress(fraction: float) -> None:
+            project.task.indeterminate = False
+            project.task.progress = min(0.99, fraction)
+
+        project.task.message = "전체 영상 받는 중"
+        path = downloader.fetch_range(
+            project.url,
+            project.dir,
+            _new_id("f_"),
+            start=None,
+            end=None,
+            max_height=project.max_height,
+            prefer=project.prefer,
+            on_progress=on_progress,
+            on_bytes=on_bytes,
+            cancel=project.cancel,
+        )
+        probed = media.probe(path)
+        clip = Clip(
+            id=_new_id("m_"),
+            path=path,
+            offset=0.0,
+            length=max(probed.duration, project.info.duration),
+        )
+        clip.poster = media.make_thumbnail(
+            path, path.with_suffix(".jpg"), at=min(1.0, probed.duration / 2)
+        )
+        with project.lock:
+            project.clips[clip.id] = clip
+        project.task.detail = ""
+        self._finish(project, "done", "구간 받기가 멈춰 전체 영상을 받았습니다. 편집할 준비가 됐습니다")
 
     def _media_cut(self, project: Project, cut: Cut) -> media.Cut:
         clip = project.clip_for(cut)

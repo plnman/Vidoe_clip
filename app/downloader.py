@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -25,6 +27,17 @@ _NOISE_RE = re.compile(r"[;.]?\s*please report this issue.*", re.IGNORECASE | re
 _CAUSED_BY_RE = re.compile(r"\s*\(caused by .*?\)", re.DOTALL)
 _PATH_ID_ROUTES = ("/shorts/", "/embed/", "/live/", "/v/")
 
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
+
+
+# 이만큼 동안 받은 것이 한 바이트도 늘지 않으면 멈춘 것으로 본다.
+STALL_SECONDS = _int_env("CLIPPER_STALL_SECONDS", 150)
+CHECK_EVERY = 1.0
+
 
 class DownloadFailed(RuntimeError):
     pass
@@ -32,6 +45,53 @@ class DownloadFailed(RuntimeError):
 
 class Cancelled(RuntimeError):
     pass
+
+
+class Stalled(DownloadFailed):
+    pass
+
+
+def _grown_bytes(dest_dir: Path, name: str) -> int:
+    total = 0
+    for path in dest_dir.glob(f"{name}.*"):
+        try:
+            total += path.stat().st_size
+        except OSError:  # 방금 이름이 바뀌었을 수 있다
+            continue
+    return total
+
+
+def _watch_progress(
+    dest_dir: Path,
+    name: str,
+    stop: threading.Event,
+    cancel: threading.Event,
+    stalled: list,
+    on_bytes=None,
+) -> None:
+    """받은 용량이 자라는지 직접 지켜본다.
+
+    구간 받기는 ffmpeg이 맡아서 yt-dlp가 진행률을 주지 않는다(D9). 그래서 화면이
+    '열심히 받는 중'과 '아무 일도 안 일어남'을 구분하지 못했다 — 실제로 24분 동안
+    "받는 중"만 띄운 채 한 바이트도 못 받은 일이 있었다.
+
+    파일이 자라는 것을 보면 둘 다 해결된다. 얼마나 받았는지 보여줄 수 있고,
+    멈추면 멈춘 줄 알 수 있다.
+    """
+    started = time.monotonic()
+    last_size, last_change = -1, started
+    while not stop.wait(CHECK_EVERY):
+        size = _grown_bytes(dest_dir, name)
+        now = time.monotonic()
+        if size != last_size:
+            last_size, last_change = size, now
+            if on_bytes is not None:
+                on_bytes(size, size / max(now - started, 0.1))
+            continue
+        if now - last_change >= STALL_SECONDS:
+            stalled.append(True)
+            cancel.set()
+            return
 
 
 @dataclass
@@ -253,6 +313,7 @@ def fetch_range(
     prefer: str = "compat",
     exact: bool = True,
     on_progress=None,
+    on_bytes=None,
     cancel: threading.Event | None = None,
 ) -> Path:
     """[start, end) 구간을 받아 파일 경로를 돌려준다. start/end가 없으면 전체.
@@ -291,13 +352,36 @@ def fetch_range(
 
     opts["progress_hooks"] = [hook]
 
+    # 멈춤 감시. 취소와 같은 통로를 쓰되, 사용자가 누른 취소와 구분해서 알려야 한다.
+    cancel = cancel if cancel is not None else threading.Event()
+    stop_watch = threading.Event()
+    stalled: list = []
+    watchdog = threading.Thread(
+        target=_watch_progress,
+        args=(dest_dir, name, stop_watch, cancel, stalled, on_bytes),
+        daemon=True,
+    )
+    watchdog.start()
+
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
     except Cancelled:
+        if stalled:
+            raise Stalled(
+                f"{STALL_SECONDS}초 동안 한 바이트도 받지 못해 중단했습니다. "
+                "'전체 영상 받기'를 켜면 여러 조각을 동시에 받아 훨씬 빠릅니다."
+            ) from None
         raise
     except DownloadError as exc:
+        if stalled:
+            raise Stalled(
+                f"{STALL_SECONDS}초 동안 한 바이트도 받지 못해 중단했습니다. "
+                "'전체 영상 받기'를 켜면 여러 조각을 동시에 받아 훨씬 빠릅니다."
+            ) from exc
         raise DownloadFailed(_friendly(exc)) from exc
+    finally:
+        stop_watch.set()
 
     produced = sorted(
         (p for p in dest_dir.glob(f"{name}.*") if p.suffix.lower() != ".part"),
