@@ -21,9 +21,25 @@ AppSupportURL={#AppUrl}
 DefaultDirName={autopf}\YoutubeClipper
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
-; 관리자 권한 없이 각 사용자 폴더에 설치한다. 회사 PC에서도 걸리지 않는다.
-PrivilegesRequiredOverridesAllowed=dialog
-PrivilegesRequired=lowest
+; 설치할 때 관리자 권한을 한 번 받는다.
+;
+; 처음에는 권한 없이(lowest) 깔리게 했는데, 그러면 덮어 설치가 깨진다. Inno는 이전에
+; 깔린 자리를 기억했다가 거기에 쓰려고 하는데, 그 자리가 Program Files면 권한이 없어
+; "DeleteFile failed; code 5"로 멈춘다. 실제로 그렇게 막혔다.
+;
+; 권한이 없는 PC를 위해 사용자 폴더로 우회하는 길도 만들어 봤지만, 그러면 옛 설치와
+; 새 설치가 양쪽에 남아 어느 것이 도는지 알 수 없어진다. 한 번 묻고 제자리에
+; 덮어쓰는 쪽이 사용자에게 훨씬 단순하다. 권한이 없는 PC에서는 아래 dialog로
+; '이 사용자만' 설치를 고를 수 있다.
+PrivilegesRequired=admin
+; dialog = 권한이 없으면 '이 사용자만' 설치를 고를 수 있게. commandline = /CURRENTUSER 허용.
+PrivilegesRequiredOverridesAllowed=commandline dialog
+; 앱이 떠 있으면 실행 파일을 바꿀 수 없다("DeleteFile failed; code 5").
+; yes로는 부족하다 — 조용히 설치할 때는 닫지 않고 넘어가서 그대로 실패한다.
+; force는 파일을 잡고 있는 프로세스를 실제로 닫는다. 실측으로 확인했다.
+CloseApplications=force
+CloseApplicationsFilter=*.exe,*.dll
+RestartApplications=no
 OutputDir=..\dist\installer
 OutputBaseFilename=YoutubeClipper-setup
 Compression=lzma2/max

@@ -374,6 +374,7 @@ yt-dlp는 `--collect-all yt_dlp` 또는 `hiddenimports`에 추출기를 명시�
 | ★ quickjs를 넣었는데 안 잡힘 | 실행 파일 이름은 `qjs`다 (2.4) |
 | ★ 한글 경로에서 `UnicodeDecodeError` | ffmpeg 출력을 UTF-8로 읽을 것 (`media._TEXT`) |
 | ★ **설치한 앱을 눌러도 아무 일이 없음** | 창 모드 앱을 콘솔 없이 실행하면 `sys.stdout`이 None이고, uvicorn이 `sys.stdout.isatty()`에서 죽는다. `desktop.ensure_streams()`가 먼저 로그 파일로 바꿔 끼운다 |
+| ★ **덮어 설치가 `DeleteFile failed; code 5`로 멈춤** | 두 가지가 겹친다. ① 앱이 떠 있으면 실행 파일을 못 바꾼다 → `CloseApplications=force`(`yes`는 조용한 설치에서 안 닫는다) ② `PrivilegesRequired=lowest`인데 이전 설치가 Program Files에 있으면 권한이 없다 → `admin`으로 받고 제자리에 덮어쓴다 |
 | ★ **'PC에 저장'을 눌러도 아무 일이 없음** | pywebview의 `ALLOW_DOWNLOADS`가 기본 False라 WebView2가 다운로드를 취소한다. 앱에서는 `create_file_dialog(FileDialog.SAVE)`로 저장 창을 띄우고 직접 복사한다 |
 | 화면이 404 | `app/static`이 안 들어감. spec의 `datas` 확인 |
 | `No module named yt_dlp.extractor.…` | 동적 import 누락. `collect_all("yt_dlp")` |
