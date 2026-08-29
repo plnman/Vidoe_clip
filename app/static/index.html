@@ -12,7 +12,7 @@
 <header>
   <div class="wrap">
     <h1>유튜브 구간 편집기</h1>
-    <p>링크와 구간만 주면 그 부분만 이어붙입니다</p>
+    <p>유튜브 링크나 내 영상 파일에서 원하는 구간만 잘라 이어붙입니다</p>
   </div>
 </header>
 
@@ -22,13 +22,45 @@
   <!-- 1. 영상 -->
   <section class="card">
     <h2><i class="step">1</i> 영상</h2>
-    <div class="row">
-      <div class="grow">
-        <label for="url">유튜브 링크</label>
-        <input type="text" id="url" placeholder="https://youtu.be/... 또는 영상 ID" autocomplete="off">
-      </div>
-      <button id="loadBtn">불러오기</button>
+
+    <div class="tabs">
+      <button type="button" class="tab on" id="tabUrl">유튜브 링크</button>
+      <button type="button" class="tab" id="tabFile">내 영상 파일</button>
     </div>
+
+    <div id="paneUrl">
+      <div class="row">
+        <div class="grow">
+          <label for="url">유튜브 링크</label>
+          <input type="text" id="url" placeholder="https://youtu.be/... 또는 영상 ID" autocomplete="off">
+        </div>
+        <button id="loadBtn">불러오기</button>
+      </div>
+    </div>
+
+    <div id="paneFile" hidden>
+      <div id="drop" class="drop">
+        <b>영상 파일을 여기에 끌어다 놓으세요</b>
+        <span class="hint">mp4 · mov · mkv · webm · avi · mp3 · m4a …</span>
+        <button type="button" id="pickBtn" class="ghost">파일 선택</button>
+        <input type="file" id="fileInput" accept="video/*,audio/*" hidden>
+      </div>
+      <div id="pathRow" hidden>
+        <div class="row" style="margin-top:12px">
+          <div class="grow">
+            <label for="localPath">또는 이 PC의 파일 경로 — 복사하지 않고 바로 엽니다</label>
+            <input type="text" id="localPath" placeholder="C:\Users\이름\Videos\영상.mp4" autocomplete="off" spellcheck="false">
+          </div>
+          <button id="localBtn">열기</button>
+        </div>
+      </div>
+      <div id="uploadProgress" class="progress" hidden>
+        <div class="label"><span id="uploadMsg">올리는 중</span><span id="uploadPct"></span></div>
+        <div class="bar"><i id="uploadBar"></i></div>
+      </div>
+      <p class="hint" id="fileHint"></p>
+    </div>
+
     <div id="videoMeta" class="video-meta" hidden>
       <img id="videoThumb" alt="">
       <div>
@@ -51,6 +83,7 @@
     <div id="parseSummary" class="summary" hidden></div>
     <div id="parseIssues"></div>
 
+    <div id="downloadOptions">
     <div class="options">
       <div>
         <label for="height">화질</label>
@@ -80,6 +113,10 @@
     <p class="hint">
       여유분만큼 앞뒤를 더 받아둡니다. 그 범위 안에서는 시작·끝을 고쳐도 다시 받지 않습니다.
       영상 전체를 자유롭게 편집하려면 ‘전체 영상 받기’를 켜세요(느리고 용량이 큽니다).
+    </p>
+    </div>
+    <p class="hint" id="fileSourceHint" hidden>
+      내 파일은 이미 전부 있으므로 받을 것이 없습니다. 어느 구간이든 바로 편집됩니다.
     </p>
 
     <div class="row" style="margin-top:14px">

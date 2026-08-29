@@ -11,7 +11,7 @@ import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -84,8 +84,21 @@ def login(body: LoginBody, response: Response) -> dict:
     return {"ok": True}
 
 
+def _is_loopback(request: Request) -> bool:
+    """서버를 돌리는 그 PC에서 열었는지. 파일 경로를 직접 받아도 되는 조건이다."""
+    return bool(request.client) and request.client.host in ("127.0.0.1", "::1")
+
+
+def require_loopback(request: Request) -> None:
+    if not _is_loopback(request):
+        raise HTTPException(
+            status_code=403,
+            detail="파일 경로는 앱을 켜 둔 그 PC에서만 쓸 수 있습니다. 다른 기기에서는 파일을 올려주세요.",
+        )
+
+
 @app.get("/api/health")
-def health() -> dict:
+def health(request: Request) -> dict:
     try:
         media.ensure_tools()
         ffmpeg_ok, ffmpeg_error = True, ""
@@ -96,6 +109,10 @@ def health() -> dict:
         "ffmpeg": ffmpeg_ok,
         "error": ffmpeg_error,
         "auth_required": bool(config.PASSWORD),
+        # 이 PC에서 연 화면이면 파일을 올리지 않고 경로만으로 바로 쓸 수 있다
+        "local_files": _is_loopback(request),
+        "file_picker": _is_loopback(request) and _picker_available(),
+        "max_upload_mb": config.MAX_UPLOAD_BYTES // (1024 * 1024),
         "defaults": {
             "pad": config.DEFAULT_PAD,
             "max_pad": config.MAX_PAD,
@@ -161,6 +178,77 @@ def create_project(body: UrlBody) -> dict:
         return store.create(body.url).to_dict()
     except (ValueError, downloader.DownloadFailed) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class LocalPathBody(BaseModel):
+    path: str = ""
+
+
+def _checked_suffix(name: str) -> str:
+    suffix = Path(name).suffix.lower()
+    if suffix not in config.VIDEO_SUFFIXES:
+        raise HTTPException(status_code=400, detail="영상 또는 소리 파일이 아닙니다")
+    return suffix
+
+
+@app.post("/api/projects/local", dependencies=[Depends(require_auth), Depends(require_loopback)])
+def create_project_from_path(body: LocalPathBody) -> dict:
+    """이 PC의 파일을 그 자리에서 쓴다. 복사하지 않으므로 용량과 무관하게 즉시 열린다."""
+    raw = (body.path or "").strip().strip('"')
+    if not raw:
+        raise HTTPException(status_code=400, detail="파일 경로를 입력하세요")
+    path = Path(raw).expanduser()
+    _checked_suffix(path.name)
+    try:
+        return store.create_from_file(path).to_dict()
+    except ProjectError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/projects/upload", dependencies=[Depends(require_auth)])
+async def create_project_from_upload(file: UploadFile = File(...)) -> dict:
+    """다른 기기에서 접속했을 때 쓰는 길. 올려받아 프로젝트 폴더에 둔다."""
+    name = Path(file.filename or "").name
+    suffix = _checked_suffix(name)
+    staging = config.WORK_DIR / "_uploads"
+    staging.mkdir(parents=True, exist_ok=True)
+    temp = staging / f"{secrets.token_hex(8)}{suffix}"
+    try:
+        size = 0
+        with temp.open("wb") as out:
+            while chunk := await file.read(4 * 1024 * 1024):
+                size += len(chunk)
+                if size > config.MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"파일이 너무 큽니다(최대 {config.MAX_UPLOAD_BYTES // (1024 * 1024)}MB). "
+                        "앱을 켜 둔 PC의 파일이라면 경로로 여는 쪽이 빠릅니다.",
+                    )
+                out.write(chunk)
+        return store.create_from_file(
+            temp, display_name=Path(name).stem, take_ownership=True
+        ).to_dict()
+    except ProjectError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        # 프로젝트가 만들어졌으면 이미 옮겨졌다. 실패했을 때만 남아 있다.
+        temp.unlink(missing_ok=True)
+
+
+def _picker_available() -> bool:
+    from . import desktop
+
+    return desktop.picker_available()
+
+
+@app.post("/api/pick-file", dependencies=[Depends(require_auth), Depends(require_loopback)])
+def pick_file() -> dict:
+    """데스크톱 앱 창에서 OS 파일 선택 대화상자를 연다."""
+    from . import desktop
+
+    if not desktop.picker_available():
+        raise HTTPException(status_code=409, detail="앱 창에서만 쓸 수 있습니다")
+    return {"path": desktop.pick_video_file()}
 
 
 @app.get("/api/projects/{project_id}", dependencies=[Depends(require_auth)])

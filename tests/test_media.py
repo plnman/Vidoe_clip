@@ -130,3 +130,17 @@ def test_zero_length_cuts_are_dropped(source, tmp_path):
 def test_thumbnail(source, tmp_path):
     shot = media.make_thumbnail(source, tmp_path / "thumb.jpg", at=3.0)
     assert shot is not None and shot.stat().st_size > 0
+
+
+def test_probe_handles_korean_path(tmp_path):
+    """한글 경로. ffmpeg 출력은 UTF-8인데 한글 윈도우 기본 인코딩은 cp949라 죽던 자리."""
+    korean = tmp_path / "한글 제목 영상.mp4"
+    _make_source(korean, seconds=3)
+    assert media.probe(korean).duration == pytest.approx(3, abs=0.4)
+
+
+def test_render_handles_korean_path(tmp_path):
+    korean = tmp_path / "한글 소스.mp4"
+    _make_source(korean, seconds=6)
+    out = media.render([media.Cut(korean, 1.0, 3.0)], tmp_path / "한글 결과.mp4")
+    assert media.probe(out).duration == pytest.approx(2.0, abs=0.3)

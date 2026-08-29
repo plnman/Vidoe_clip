@@ -50,7 +50,11 @@ def _tool_version(name: str) -> str:
     if not path:
         return ""
     try:
-        out = subprocess.run([path, "-version"], capture_output=True, text=True, timeout=15).stdout
+        # 한글 윈도우에서 OS 기본 인코딩(cp949)으로 읽다 죽지 않도록 (media._TEXT와 같은 이유)
+        out = subprocess.run(
+            [path, "-version"], capture_output=True, text=True, timeout=15,
+            encoding="utf-8", errors="replace",
+        ).stdout
         return out.splitlines()[0][:90] if out else path
     except (OSError, subprocess.SubprocessError):
         return path

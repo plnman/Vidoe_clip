@@ -68,9 +68,15 @@ def ensure_tools() -> None:
         raise MediaError("ffmpeg 을(를) 찾을 수 없습니다. 설치 후 다시 실행하세요.")
 
 
+# ffmpeg은 UTF-8로 찍는데 파이썬은 OS 기본 인코딩으로 읽는다. 한글 윈도우(cp949)에서
+# 한글이 섞인 경로나 메타데이터가 나오면 그 순간 UnicodeDecodeError로 죽는다.
+# 오류 문구를 좀 흘리더라도 죽지는 않도록 항상 UTF-8로 읽고 못 읽는 바이트는 넘긴다.
+_TEXT = {"encoding": "utf-8", "errors": "replace"}
+
+
 def probe(path: Path) -> MediaInfo:
     cmd = [FFPROBE, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True, **_TEXT)
     if proc.returncode != 0:
         raise MediaError(f"파일을 읽지 못했습니다: {proc.stderr.strip()[:300]}")
     data = json.loads(proc.stdout or "{}")
@@ -105,7 +111,9 @@ def probe(path: Path) -> MediaInfo:
 
 def _run_with_progress(cmd, total_seconds: float, on_progress, cancel: threading.Event | None) -> None:
     """ffmpeg을 돌리며 진행률(0~1)을 보고한다."""
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, **_TEXT
+    )
     tail: list[str] = []
 
     def drain_stderr() -> None:

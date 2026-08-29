@@ -3,6 +3,8 @@
 const $ = (id) => document.getElementById(id);
 const state = {
   project: null, cards: new Map(), poll: null, resultCuts: [], resultUrl: null, resultMedia: null, password: null,
+  // 앱 창이면 OS 파일 선택 창을 쓸 수 있다. 브라우저면 파일을 올려야 한다.
+  filePicker: false,
   // 편집은 즉시 화면에 반영하고 서버에는 조금 뒤에 보낸다. 그 사이에 도착한
   // 폴링 응답이 방금 한 편집을 덮어쓰지 않도록 순번으로 비교한다.
   editSeq: 0, syncedSeq: 0,
@@ -76,33 +78,159 @@ function debounce(fn, ms) {
 
 /* ---------- 1. 영상 불러오기 ---------- */
 
+// 소스가 유튜브든 내 파일이든 여기서부터는 완전히 같은 흐름이다.
+function openProject(project) {
+  state.project = project;
+  state.cards.clear();
+  state.resultUrl = null;
+  $('cutList').innerHTML = '';
+  const video = project.video;
+  $('videoThumb').src = video.thumbnail || '';
+  $('videoThumb').hidden = !video.thumbnail;
+  $('videoTitle').textContent = video.title;
+  $('videoSub').textContent = `${video.uploader || ''} · ${fmt(video.duration, false)}`.trim();
+  show($('videoMeta'), true);
+  show($('segmentCard'), true);
+  show($('editCard'), false);
+  show($('renderCard'), false);
+  show($('resultBox'), false);
+
+  // 내 파일은 이미 전부 있다. 받을 범위를 정하는 설정들이 의미가 없다.
+  const isFile = project.source === 'file';
+  show($('downloadOptions'), !isFile);
+  show($('fileSourceHint'), isFile);
+  $('prepareBtn').textContent = isFile ? '구간 확정' : '소스 준비';
+
+  reparse();
+  $('segText').focus();
+}
+
 async function loadVideo() {
   const url = $('url').value.trim();
   if (!url) return;
   $('loadBtn').disabled = true;
   notice($('urlError'), '');
   try {
-    const project = await api('/api/projects', { method: 'POST', body: { url } });
-    state.project = project;
-    state.cards.clear();
-    $('cutList').innerHTML = '';
-    const video = project.video;
-    $('videoThumb').src = video.thumbnail || '';
-    $('videoThumb').hidden = !video.thumbnail;
-    $('videoTitle').textContent = video.title;
-    $('videoSub').textContent = `${video.uploader || ''} · ${fmt(video.duration, false)}`.trim();
-    show($('videoMeta'), true);
-    show($('segmentCard'), true);
-    show($('editCard'), false);
-    show($('renderCard'), false);
-    show($('resultBox'), false);
-    reparse();
-    $('segText').focus();
+    openProject(await api('/api/projects', { method: 'POST', body: { url } }));
   } catch (err) {
     notice($('urlError'), err.message);
   } finally {
     $('loadBtn').disabled = false;
   }
+}
+
+/* ---------- 1-b. 내 영상 파일 ---------- */
+
+function selectSource(which) {
+  const file = which === 'file';
+  $('tabUrl').classList.toggle('on', !file);
+  $('tabFile').classList.toggle('on', file);
+  show($('paneUrl'), !file);
+  show($('paneFile'), file);
+  notice($('urlError'), '');
+}
+
+// 같은 PC의 파일은 경로만 넘긴다. 올리지 않으니 용량과 무관하게 즉시 열린다.
+async function openLocalPath(path) {
+  const value = (path || '').trim();
+  if (!value) return;
+  $('localBtn').disabled = true;
+  notice($('urlError'), '');
+  try {
+    openProject(await api('/api/projects/local', { method: 'POST', body: { path: value } }));
+  } catch (err) {
+    notice($('urlError'), err.message);
+  } finally {
+    $('localBtn').disabled = false;
+  }
+}
+
+// 다른 기기에서 접속했을 때. XHR을 쓰는 이유는 fetch가 업로드 진행률을 주지 않아서다.
+function uploadFile(file) {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/projects/upload');
+    if (state.password) xhr.setRequestHeader('X-Clipper-Password', state.password);
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      const fraction = event.loaded / event.total;
+      $('uploadBar').style.width = `${fraction * 100}%`;
+      $('uploadPct').textContent = `${Math.round(fraction * 100)}%`;
+      $('uploadMsg').textContent =
+        fraction < 1 ? `${file.name} 올리는 중` : '읽는 중';
+    };
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { /* 본문이 없을 수도 있다 */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new Error(data.detail || `업로드 실패 (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new Error('업로드 중 연결이 끊겼습니다'));
+    xhr.send(form);
+  });
+}
+
+async function openUploadedFile(file) {
+  if (!file) return;
+  notice($('urlError'), '');
+  $('uploadBar').style.width = '0%';
+  $('uploadPct').textContent = '0%';
+  $('uploadMsg').textContent = `${file.name} 올리는 중`;
+  show($('uploadProgress'), true);
+  try {
+    openProject(await uploadFile(file));
+  } catch (err) {
+    notice($('urlError'), err.message);
+  } finally {
+    show($('uploadProgress'), false);
+  }
+}
+
+// 앱 창에서는 OS 파일 선택 창을 띄워 경로를 받는다(복사 없음).
+// 브라우저에서는 경로를 알 수 없으므로 파일 자체를 받아 올린다.
+async function chooseFile() {
+  if (state.filePicker) {
+    try {
+      const picked = await api('/api/pick-file', { method: 'POST' });
+      if (picked.path) await openLocalPath(picked.path);
+      return;
+    } catch (err) {
+      notice($('urlError'), err.message);
+      return;
+    }
+  }
+  $('fileInput').click();
+}
+
+function bindFileSource(health) {
+  state.filePicker = Boolean(health.file_picker);
+  show($('pathRow'), Boolean(health.local_files));
+  $('fileHint').textContent = health.local_files
+    ? '이 PC의 파일은 복사하지 않고 그 자리에서 씁니다. 원본은 건드리지 않습니다.'
+    : `다른 기기에서 접속 중이라 파일을 올려야 합니다(최대 ${health.max_upload_mb}MB).`;
+
+  $('tabUrl').addEventListener('click', () => selectSource('url'));
+  $('tabFile').addEventListener('click', () => selectSource('file'));
+  $('pickBtn').addEventListener('click', chooseFile);
+  $('fileInput').addEventListener('change', (e) => {
+    openUploadedFile(e.target.files[0]);
+    e.target.value = '';  // 같은 파일을 다시 골라도 change가 오도록
+  });
+  $('localBtn').addEventListener('click', () => openLocalPath($('localPath').value));
+  $('localPath').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') openLocalPath($('localPath').value);
+  });
+
+  const drop = $('drop');
+  for (const type of ['dragenter', 'dragover']) {
+    drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.add('over'); });
+  }
+  for (const type of ['dragleave', 'drop']) {
+    drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.remove('over'); });
+  }
+  drop.addEventListener('drop', (e) => openUploadedFile(e.dataTransfer.files[0]));
 }
 
 /* ---------- 2. 구간 파싱 미리보기 ---------- */
@@ -615,6 +743,7 @@ async function init() {
     $('pad').value = health.defaults.pad;
     $('pad').max = health.defaults.max_pad;
     $('height').value = String(health.defaults.height);
+    bindFileSource(health);
   } catch (err) {
     notice($('health'), err.message);
   }

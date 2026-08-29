@@ -56,14 +56,45 @@ def wait_until_ready(port: int, timeout: float = STARTUP_TIMEOUT) -> bool:
     return False
 
 
+# 앱 창. 파일 선택 대화상자를 열려면 창 객체가 필요해서 들고 있는다.
+# 브라우저로 열렸거나 서버만 띄운 경우에는 None으로 남는다.
+_window = None
+
+_FILE_TYPES = (
+    "영상 파일 (*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.flv;*.m4v;*.mpg;*.mpeg;*.ts;*.m2ts)",
+    "소리 파일 (*.mp3;*.m4a;*.aac;*.wav;*.flac;*.opus;*.ogg)",
+    "모든 파일 (*.*)",
+)
+
+
+def picker_available() -> bool:
+    return _window is not None
+
+
+def pick_video_file() -> str:
+    """OS 파일 선택 창을 열고 고른 경로를 돌려준다. 취소하면 빈 문자열."""
+    if _window is None:
+        return ""
+    import webview
+
+    chosen = _window.create_file_dialog(
+        webview.OPEN_DIALOG, allow_multiple=False, file_types=_FILE_TYPES
+    )
+    if not chosen:
+        return ""
+    return str(chosen[0] if isinstance(chosen, (list, tuple)) else chosen)
+
+
 def open_window(url: str) -> bool:
     """네이티브 창으로 연다. pywebview가 없으면 False."""
+    global _window
     try:
         import webview
     except ImportError:
         return False
-    webview.create_window(APP_NAME, url, width=1100, height=880, min_size=(720, 600))
+    _window = webview.create_window(APP_NAME, url, width=1100, height=880, min_size=(720, 600))
     webview.start()
+    _window = None
     return True
 
 

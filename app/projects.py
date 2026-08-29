@@ -129,6 +129,8 @@ class Project:
     url: str
     info: downloader.VideoInfo
     dir: Path
+    # "youtube" = 링크에서 구간만 받아온다 / "file" = 내 컴퓨터의 파일, 처음부터 전부 있다
+    source: str = "youtube"
     max_height: int = config.DEFAULT_HEIGHT
     prefer: str = "compat"
     pad: float = config.DEFAULT_PAD
@@ -167,6 +169,7 @@ class Project:
         enabled = self.enabled_cuts()
         return {
             "id": self.id,
+            "source": self.source,
             "video": self.info.to_dict(),
             "options": {
                 "max_height": self.max_height,
@@ -208,6 +211,66 @@ class ProjectStore:
         directory = config.WORK_DIR / pid
         directory.mkdir(parents=True, exist_ok=True)
         project = Project(id=pid, url=info.url, info=info, dir=directory)
+        with self._lock:
+            self._projects[pid] = project
+        return project
+
+    def create_from_file(
+        self, path: Path, *, display_name: str = "", take_ownership: bool = False
+    ) -> Project:
+        """내 컴퓨터의 영상 파일로 프로젝트를 만든다.
+
+        유튜브 소스와 달리 받을 것이 없다. 파일 전체를 담은 조각 하나를 미리 넣어두면
+        그다음 흐름(편집·렌더)은 유튜브와 완전히 같은 길을 탄다.
+
+        take_ownership=True면 파일을 프로젝트 폴더로 옮긴다(업로드 임시본).
+        False면 원본 자리를 그대로 가리킨다 — 몇 GB짜리를 복사하지 않기 위해서다.
+        원본은 프로젝트 폴더 밖이라 정리(delete)에도 지워지지 않는다.
+        """
+        self.sweep()
+        path = Path(path)
+        if not path.is_file():
+            raise ProjectError("파일을 찾을 수 없습니다")
+
+        # 폴더를 만들기 전에 먼저 읽어본다. 못 읽는 파일이면 여기서 끝낸다.
+        try:
+            probed = media.probe(path)
+        except media.MediaError as exc:
+            raise ProjectError(f"영상 파일로 읽지 못했습니다: {exc}") from exc
+        if not probed.has_video and not probed.has_audio:
+            raise ProjectError("영상도 소리도 없는 파일입니다")
+        if probed.duration <= EPS:
+            raise ProjectError("길이를 알 수 없는 파일입니다")
+        if probed.duration > config.MAX_SOURCE_SECONDS:
+            raise ProjectError(f"너무 긴 영상입니다(최대 {config.MAX_SOURCE_SECONDS // 3600}시간)")
+
+        pid = _new_id("p_")
+        directory = config.WORK_DIR / pid
+        directory.mkdir(parents=True, exist_ok=True)
+
+        if take_ownership:
+            owned = directory / f"source{path.suffix.lower() or '.mp4'}"
+            shutil.move(str(path), owned)
+            path = owned
+
+        clip = Clip(id=_new_id("m_"), path=path, offset=0.0, length=probed.duration)
+        clip.poster = media.make_thumbnail(
+            path, directory / "source.jpg", at=min(2.0, probed.duration / 2)
+        )
+
+        title = _safe_filename(display_name or path.stem, fallback="내 영상")
+        info = downloader.VideoInfo(
+            video_id="",
+            url="",
+            title=title,
+            duration=probed.duration,
+            # 썸네일은 파일에서 뽑은 것을 쓴다. 링크 소스의 유튜브 썸네일 자리와 같다.
+            thumbnail=f"/api/projects/{pid}/clips/{clip.id}/poster",
+            uploader=f"내 파일 · {probed.width}x{probed.height}" if probed.has_video else "내 파일 · 소리만",
+            is_live=False,
+        )
+        project = Project(id=pid, url="", info=info, dir=directory, source="file")
+        project.clips[clip.id] = clip
         with self._lock:
             self._projects[pid] = project
         return project
@@ -339,6 +402,11 @@ class ProjectStore:
 
     def _prepare(self, project: Project) -> None:
         try:
+            if project.source == "file":
+                # 파일 소스는 만들 때 이미 전체를 담은 조각을 넣어뒀다. 받을 것이 없다.
+                self._finish(project, "done", "편집할 준비가 됐습니다")
+                return
+
             if project.whole:
                 have_full = any(
                     c.offset <= COVER_TOL and c.end >= project.info.duration - COVER_TOL

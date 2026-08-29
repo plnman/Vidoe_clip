@@ -57,6 +57,15 @@ COOKIE_FILE = os.environ.get("CLIPPER_COOKIES", "").strip()
 COOKIES_FROM_BROWSER = os.environ.get("CLIPPER_COOKIES_FROM_BROWSER", "").strip()
 PROXY = os.environ.get("CLIPPER_PROXY", "").strip()
 
+# 내 컴퓨터의 영상 파일을 쓸 때. 같은 PC의 파일은 경로만 받아 그 자리에서 쓰고(복사 없음),
+# 다른 기기에서 접속했을 때만 올려받는다. 그래서 상한은 업로드에만 걸린다.
+MAX_UPLOAD_BYTES = _int("CLIPPER_MAX_UPLOAD_MB", 8 * 1024) * 1024 * 1024
+VIDEO_SUFFIXES = {
+    ".mp4", ".mov", ".mkv", ".webm", ".avi", ".wmv", ".flv", ".m4v", ".mpg", ".mpeg",
+    ".ts", ".m2ts", ".3gp", ".ogv",
+    ".mp3", ".m4a", ".aac", ".wav", ".flac", ".opus", ".ogg", ".wma",
+}
+
 # 안전장치
 MAX_SEGMENTS = _int("CLIPPER_MAX_SEGMENTS", 60)
 MAX_TOTAL_SECONDS = _int("CLIPPER_MAX_TOTAL_SECONDS", 3 * 3600)
