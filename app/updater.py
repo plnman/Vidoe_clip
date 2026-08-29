@@ -76,6 +76,19 @@ def _wheel_of(release: dict) -> dict:
     raise UpdateError("받을 수 있는 yt-dlp 파일을 찾지 못했습니다")
 
 
+def _version_key(version: str) -> tuple[int, ...]:
+    """버전을 숫자로 비교할 수 있게 쪼갠다.
+
+    문자열로 비교하면 안 된다. 같은 날짜를 yt-dlp는 `2026.08.19`로, PyPI는 정규화해서
+    `2026.8.19`로 적는데, 문자열로는 '8' > '0'이라 **늘 새 버전이 있는 것처럼** 보인다.
+    """
+    parts = []
+    for chunk in version.split("."):
+        digits = "".join(c for c in chunk if c.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
 def check() -> dict:
     """설치된 버전과 최신 버전을 비교한다. 네트워크가 안 되면 그대로 알린다."""
     current = installed_version()
@@ -86,8 +99,7 @@ def check() -> dict:
     return {
         "current": current,
         "latest": latest,
-        # 버전이 날짜 형식(2026.08.19)이라 문자열 비교로 충분하다
-        "outdated": bool(latest and current and latest > current),
+        "outdated": bool(latest and current and _version_key(latest) > _version_key(current)),
         "error": "",
     }
 

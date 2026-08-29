@@ -1,10 +1,19 @@
-# 데스크톱 앱 전환 계획
+# 데스크톱 앱
 
 > 저장소: **https://github.com/plnman/Vidoe_clip** (브랜치 `main`)
 > 클론: `git clone https://github.com/plnman/Vidoe_clip.git`
 
-4K Video Downloader처럼 **어느 PC에나 설치해서 바로 쓰는** 형태로 만드는 작업 지시서.
-지금은 Python과 ffmpeg을 직접 설치해야 한다. 그 두 가지를 없애는 것이 목표다.
+4K Video Downloader처럼 **어느 PC에나 설치해서 바로 쓰는** 형태. Python과 ffmpeg을
+직접 설치해야 하던 것을 없애는 것이 목표였다.
+
+> **윈도우는 됐다.** 2026-08-29 기준 `dist\installer\YoutubeClipper-setup.exe` (79MB,
+> 푼 크기 253MB)가 나오고, ffmpeg·node가 **전혀 없는 PATH**에서 실제 유튜브 영상
+> 전 과정을 완주한다. 아래 1~5단계는 전부 밟았고, 실제로 걸렸던 함정은 6장에 옮겨 적었다.
+> 맥·리눅스 빌드 스크립트는 있으나 그 OS에서 돌려본 적은 없다.
+>
+> ```powershell
+> .\packaging\build.ps1 -Installer
+> ```
 
 먼저 `docs/DESIGN.md`를 읽을 것. 왜 이런 구조인지 모른 채 패키징하면 핵심 설계를
 망가뜨리기 쉽다.
@@ -46,15 +55,19 @@ pywebview 창 열기 (실패하면 기본 브라우저)
 
 화면과 서버 코드는 **한 줄도 바꾸지 않는다.** 실행 방식만 바뀐다.
 
-### 이미 되어 있는 것 (코드에 반영 완료)
+### 코드에 반영된 것
 
 | 파일 | 내용 |
 |---|---|
-| `app/desktop.py` | 진입점. 포트 자동 선택, 서버 기동 대기, 창 열기, 종료 정리 |
-| `app/config.py` | `FROZEN`, `user_data_dir()`, `bundled_bin_dir()` |
+| `packaging/entry.py` | 묶을 때의 진입점. `app.desktop`을 **패키지째** import 한다(6장 참고) |
+| `app/desktop.py` | 포트 자동 선택, 서버 기동 대기, 창 열기, OS 파일 선택, 종료 정리 |
+| `app/config.py` | `FROZEN`, `user_data_dir()`, `bundled_bin_dir()`, `use_bundled_bin()` |
+| `app/__init__.py` | 순서가 중요한 두 줄 — yt-dlp 갱신본 우선, 묶은 `bin/`을 PATH 앞으로 |
+| `app/updater.py` | yt-dlp를 앱과 따로 갱신 (2.5) |
 | `app/media.py` | `_tool()` — 함께 묶은 ffmpeg을 PATH보다 먼저 찾는다 |
-| `app/downloader.py` | 묶은 ffmpeg 위치를 yt-dlp에 `ffmpeg_location`으로 전달 |
-| `tests/test_desktop.py` | 포트 선택, 기동 대기, 창 실패 시 브라우저 대체 |
+| `app/downloader.py` | 묶은 ffmpeg 위치 전달, 런타임 이름≠실행 파일 이름 처리 |
+| `tests/test_desktop.py` | 포트 선택, 기동 대기, 창 실패 시 브라우저 대체, PATH 주입 |
+| `tests/test_updater.py` | 갱신 받기·갈아끼우기·손상 거절·부팅 시 우선순위 |
 
 개발 중에도 그대로 돈다:
 
@@ -135,9 +148,20 @@ GPL로 배포해야 한다. 이 저장소는 공개 저장소이므로 문제는
 
 `downloader.available_js_runtimes()`가 `bin/`을 먼저 뒤지므로 넣기만 하면 된다.
 
-**반드시 검증할 것** — yt-dlp의 quickjs provider가 실제로 챌린지를 푸는지는
-대상 PC에서 확인해야 한다. `bin/`에 `qjs`를 넣고 `python -m app.doctor <URL>`로
-확인할 것. 안 되면 deno로 바꾸고 크기를 감수한다.
+**검증됨** — node·deno·bun을 전부 뺀 PATH에 `qjs.exe`만 두고 진단을 돌려 8단계가
+모두 통과하는 것을 확인했다(2026-08-29). deno로 바꿀 필요가 없다.
+
+```
+[ OK ] 자바스크립트 런타임    quickjs
+[ OK ] 영상 정보 조회         유발하라리 박사님 통찰 감사합니다 · 40:03
+```
+
+받는 곳은 quickjs-ng 릴리스다(`qjs-windows-x86_64.exe` 등, 2MB대).
+`packaging/fetch-binaries.ps1` / `.sh`가 알아서 받는다.
+
+**주의** — 실행 파일 이름은 `quickjs`가 아니라 **`qjs`**다. 처음에 런타임 이름 그대로
+찾도록 되어 있어서 넣어도 못 찾았다. `downloader.JS_RUNTIMES`가 이름과 실행 파일
+후보를 따로 들고 있는 이유다.
 
 ### 2.5 yt-dlp는 실행 시점에 갱신할 수 있어야 한다
 
@@ -157,73 +181,88 @@ GPL로 배포해야 한다. 이 저장소는 공개 저장소이므로 문제는
 4. 화면에 `yt-dlp 업데이트` 버튼을 둔다. 누르면 최신 wheel을 받아 위 폴더에 푼다
 5. 주 1회 정도 조용히 확인하고, 새 버전이 있으면 화면에 알린다
 
-**구현 위치** — `app/updater.py`(신규) + `app/main.py`에 엔드포인트 두 개
-(`GET /api/updates`, `POST /api/updates/ytdlp`). 진입점에서 4번보다 먼저 3번을 해야 하므로
-`app/desktop.py` 맨 위에서 경로를 잡는다.
+**구현됨** — `app/updater.py` + `app/main.py`의 엔드포인트 두 개
+(`GET /api/updates`, `POST /api/updates/ytdlp`). 화면 맨 아래 `관리` 칸에서 누른다.
+
+경로를 잡는 자리는 `app/desktop.py`가 아니라 **`app/__init__.py`**로 갔다. 진입점이
+`app.main`(웹앱)·`app.desktop`(앱 창)·`app.doctor`(진단) 셋인데 전부 이 패키지를 지나므로,
+거기 두면 어느 길로 들어와도 yt_dlp보다 먼저 실행된다.
+
+pip이 없는 환경(묶인 앱)에서도 되어야 해서 wheel을 직접 받아 푼다. yt-dlp wheel은
+순수 파이썬이라 문제없다. 받은 것을 다 푼 **뒤에** 갈아끼우므로 중간에 실패해도
+쓰던 버전이 남는다. sha256도 확인한다.
 
 **대안** — standalone `yt-dlp` 실행 파일을 `bin/`에 두고 subprocess로 부르는 방식.
 교체가 파일 하나로 끝나 더 단순하지만, 지금 코드는 Python API를 쓰고 있어
-`downloader.py`를 다시 써야 한다. 위 방식을 먼저 시도할 것.
+`downloader.py`를 다시 써야 한다. 위 방식으로 됐으므로 쓰지 않았다.
 
 ### 2.6 작업 파일은 사용자 폴더에
 
 임시 폴더는 OS가 청소해서 결과물이 사라질 수 있다. `config.FROZEN`일 때
-`user_data_dir()/work`를 쓰도록 이미 바꿔뒀다.
+`user_data_dir()/work`를 쓴다. 묶은 앱에서 실제로 `%LOCALAPPDATA%\YoutubeClipper\work`로
+잡히는 것을 확인했다.
 
-**추가로 할 일** — 설정 화면에 `작업 폴더 비우기` 버튼. 지금은 TTL로만 지운다.
+`작업 폴더 비우기`도 넣었다 — `POST /api/work/clear`, 화면의 `관리` 칸.
+지우기와 갱신은 둘 다 루프백에서만 받는다(다른 기기에서 남의 PC 파일을 지우면 곤란하다).
 
 ---
 
-## 3. 단계별 작업
+## 3. 빌드하기
 
-각 단계가 끝날 때마다 실제로 실행해서 확인하고 커밋할 것.
+윈도우는 한 줄이면 된다. 의존성 설치, 바이너리 받기, 빌드, `bin/` 복사, 설치 파일까지
+스크립트가 한다.
 
-### 1단계 — 빌드가 되게 만든다 (ffmpeg 없이)
-
-```bash
-pip install pyinstaller pywebview
-pyinstaller packaging/clipper.spec
-dist/YoutubeClipper/YoutubeClipper --browser
+```powershell
+.\packaging\build.ps1 -Installer
 ```
 
-확인: 창(또는 브라우저)이 열리고 1단계 화면이 뜬다. ffmpeg이 PATH에 있으면 전체 동작.
+| 옵션 | 뜻 |
+|---|---|
+| (없음) | `dist\YoutubeClipper\` 까지만 |
+| `-Installer` | Inno Setup으로 `dist\installer\YoutubeClipper-setup.exe` 까지 |
+| `-SkipBinaries` | `packaging\bin\`을 이미 받아뒀을 때 (ffmpeg 200MB를 다시 안 받는다) |
 
-막히는 지점 두 가지가 예상된다.
+맥·리눅스는 `./packaging/build.sh`. **크로스 빌드는 안 된다** — 해당 OS에서 돌려야 한다.
 
-- **정적 파일 누락** — `app/static/`이 안 들어가서 화면이 404. spec의 `datas`로 넣는다
-- **yt-dlp 추출기 누락** — PyInstaller가 동적 import를 못 찾는다.
-  `hiddenimports`에 `yt_dlp.extractor`를 넣거나 `--collect-all yt_dlp`
+### 실제로 확인한 것 (윈도우, 2026-08-29)
 
-### 2단계 — ffmpeg을 넣는다
+각 단계는 실제로 돌려서 결과를 봤다. 다시 할 때도 같은 방식으로 확인할 것.
 
-`packaging/bin/`에 플랫폼별 바이너리를 두고 spec이 `bin/`으로 복사하게 한다.
-확인: **PATH에서 ffmpeg을 지운 상태로** 실행해 전체가 도는지.
+**1) 묶인 앱이 뜨는가**
 
-```bash
-env PATH=/usr/bin:/bin dist/YoutubeClipper/YoutubeClipper --no-open &
-# 다른 터미널에서 진단
-dist/YoutubeClipper/YoutubeClipper --help
+```powershell
+$env:PATH = "C:\Windows\system32;C:\Windows"   # ffmpeg도 node도 없는 PATH
+.\dist\YoutubeClipper\YoutubeClipper.exe --no-open --port 8765
+curl http://127.0.0.1:8765/api/health
+# {"ok":true,"ffmpeg":true, ... "work_dir":"...\\LocalAppData\\YoutubeClipper\\work"}
 ```
 
-### 3단계 — quickjs를 넣고 실제 유튜브로 검증
+`ffmpeg:true`가 핵심이다 — PATH에 없는데 true면 묶어 온 것을 쓰고 있다는 뜻이다.
 
-```bash
-dist/YoutubeClipper/YoutubeClipper --no-open &
-python -m app.doctor "https://youtu.be/짧은영상"
-```
+**2) 그 상태로 실제 유튜브 전 과정**
 
-`자바스크립트 런타임` 항목에 `quickjs`가 잡히고, 8단계가 전부 통과해야 한다.
+같은 clean PATH에서 링크 → 구간 3개 → 준비 → 렌더 → 저장까지 API로 완주시켰고,
+결과는 **48.000초 h264+aac 2.9MB**로 개발 실행본과 바이트까지 같았다.
 
-### 4단계 — yt-dlp 갱신 경로 (2.5)
+**3) quickjs만으로 챌린지가 풀리는가**
 
-확인: 갱신 폴더에 일부러 낡은 yt-dlp를 넣고, 갱신 버튼을 눌러 버전이 바뀌는지.
-진단의 `yt-dlp 버전` 줄로 확인된다.
+node·deno·bun을 전부 뺀 PATH에 `qjs.exe`만 두고 진단 8단계 통과 (2.4 참고).
 
-### 5단계 — 설치 프로그램
+**4) 앱 창과 종료 정리**
+
+인자 없이 실행하면 WebView2 창이 뜨고 `file_picker:true`가 된다(OS 파일 선택 가능).
+창을 닫으면 3초 안에 서버가 내려가고 프로세스가 남지 않는다.
+`--port`를 달리해 두 개를 동시에 띄워도 충돌하지 않는다.
+
+**5) 설치 파일**
+
+`YoutubeClipper-setup.exe` 79MB (푼 크기 253MB). 관리자 권한 없이 사용자 폴더에 설치된다.
+
+### 설치 프로그램
 
 | OS | 도구 | 결과물 |
 |---|---|---|
-| Windows | [Inno Setup](https://jrsoftware.org/isinfo.php) | `YoutubeClipper-setup.exe` |
+| Windows | [Inno Setup](https://jrsoftware.org/isinfo.php) — `winget install JRSoftware.InnoSetup` | `YoutubeClipper-setup.exe` |
 | macOS | `hdiutil` + `create-dmg` | `YoutubeClipper.dmg` |
 | Linux | tar.gz 또는 AppImage | `YoutubeClipper.tar.gz` |
 
@@ -235,26 +274,32 @@ python -m app.doctor "https://youtu.be/짧은영상"
 - 윈도우: `추가 정보` → `실행`
 - 맥: 우클릭 → `열기`, 또는 `xattr -dr com.apple.quarantine /Applications/YoutubeClipper.app`
 
-### 6단계 — 자동 빌드 (선택)
+### 아직 안 한 것 — 자동 빌드
 
 GitHub Actions에서 세 OS 러너로 빌드해 릴리스에 올린다.
 `windows-latest`, `macos-latest`, `ubuntu-latest`. 태그를 밀면 설치 파일이 나오게.
 
 ---
 
-## 4. 만들어야 할 파일
+## 4. 파일 구성
 
 ```
 packaging/
+├── entry.py              # 묶을 때의 진입점 (app.desktop을 패키지째 import)
 ├── clipper.spec          # PyInstaller 설정
+├── build.ps1             # Windows 빌드 (+ -Installer)
 ├── build.sh              # macOS / Linux 빌드
-├── build.ps1             # Windows 빌드
-├── fetch-binaries.sh     # ffmpeg·qjs 받아서 packaging/bin/에 두기
+├── fetch-binaries.ps1    # ffmpeg·qjs 받아서 packaging/bin/에 두기 (Windows)
+├── fetch-binaries.sh     # 같은 것 (macOS / Linux)
 ├── installer.iss         # Inno Setup (Windows)
 └── bin/                  # 받아둔 바이너리 (.gitignore 대상, 용량이 크다)
 app/
 └── updater.py            # yt-dlp 갱신 (2.5)
 ```
+
+**윈도우 스크립트는 UTF-8 BOM으로 저장해야 한다.** Windows PowerShell 5.1은 BOM이 없는
+`.ps1`을 ANSI(cp949)로 읽어서, 한글 주석이 든 스크립트가 통째로 파싱 오류를 낸다.
+실제로 처음 실행할 때 이것부터 걸렸다.
 
 `.gitignore`에 `packaging/bin/`, `build/`, `dist/`, `*.spec.bak`을 추가할 것.
 
@@ -288,25 +333,32 @@ yt-dlp는 `--collect-all yt_dlp` 또는 `hiddenimports`에 추출기를 명시�
 
 ## 5. 완료 판정
 
-전부 만족해야 끝이다.
+- [x] `bin/`의 ffmpeg을 쓴다 (PATH에 ffmpeg이 없어도 동작)
+- [x] JS 런타임이 잡혀 봇 차단에 걸리지 않는다 (quickjs 단독으로)
+- [x] 실행하면 창이 열리고, 링크 → 구간 → 준비 → 편집 → 저장이 전부 된다
+- [x] yt-dlp를 앱 안에서 갱신할 수 있다
+- [x] 창을 닫으면 서버 프로세스가 남지 않는다
+- [x] 두 번 실행해도 포트 충돌이 없다
+- [x] 작업 파일이 사용자 폴더에 쌓이고, 비울 수 있다
+- [x] 설치 파일 하나로 설치·실행된다 (79MB)
+- [x] `pytest` 전부 통과 (130개)
+- [ ] **Python·ffmpeg이 한 번도 깔린 적 없는 다른 PC**에서 확인
+      — 빌드한 PC에서는 PATH를 비워 확인했지만, 진짜 깨끗한 기기에서 한 번 더 볼 것
+- [ ] 맥에서 실제 유튜브 영상으로 완주 (맥이 필요하다)
 
-- [ ] **Python·ffmpeg이 없는 깨끗한 PC**에서 설치 파일 하나로 설치·실행된다
-- [ ] 실행하면 창이 열리고, 링크 → 구간 → 준비 → 편집 → 저장이 전부 된다
-- [ ] `bin/`의 ffmpeg을 쓴다 (PATH에 ffmpeg이 없어도 동작)
-- [ ] JS 런타임이 잡혀 봇 차단에 걸리지 않는다
-- [ ] yt-dlp를 앱 안에서 갱신할 수 있다
-- [ ] 창을 닫으면 서버 프로세스가 남지 않는다
-- [ ] 두 번 실행해도 포트 충돌이 없다
-- [ ] 작업 파일이 사용자 폴더에 쌓이고, 비울 수 있다
-- [ ] 윈도우/맥 각각에서 실제 유튜브 영상으로 완주
-- [ ] `pytest` 전부 통과 (지금 101개)
+## 6. 함정
 
-## 6. 예상되는 함정
+★ 표시는 이 앱을 실제로 묶으면서 걸린 것들이다. 나머지는 예상해 둔 것.
 
 | 증상 | 원인과 대처 |
 |---|---|
+| ★ `.ps1`이 통째로 파싱 오류 | PowerShell 5.1이 BOM 없는 UTF-8을 cp949로 읽는다. **UTF-8 BOM으로 저장** |
+| ★ `attempted relative import with no known parent package` | `app/desktop.py`를 spec에 직접 넘기면 `__main__`이 된다. `packaging/entry.py`를 거칠 것 |
+| ★ 조회는 되는데 `ffmpeg is not installed`로 다운로드만 실패 | yt-dlp의 `FFmpegFD.available()`은 넘긴 `ffmpeg_location`을 못 본다. **`bin/`을 PATH 앞에 둘 것**(`config.use_bundled_bin`) |
+| ★ quickjs를 넣었는데 안 잡힘 | 실행 파일 이름은 `qjs`다 (2.4) |
+| ★ 한글 경로에서 `UnicodeDecodeError` | ffmpeg 출력을 UTF-8로 읽을 것 (`media._TEXT`) |
 | 화면이 404 | `app/static`이 안 들어감. spec의 `datas` 확인 |
-| `No module named yt_dlp.extractor.…` | 동적 import 누락. `--collect-all yt_dlp` |
+| `No module named yt_dlp.extractor.…` | 동적 import 누락. `collect_all("yt_dlp")` |
 | 실행은 되는데 다운로드만 실패 | `bin/ffmpeg` 실행 권한. 맥/리눅스는 `chmod +x` |
 | 맥에서 "손상된 파일" | 서명 없음. `xattr -dr com.apple.quarantine` |
 | 백신이 지움 | PyInstaller 오탐. onedir + 서명으로 완화 |

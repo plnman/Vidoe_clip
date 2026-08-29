@@ -138,6 +138,26 @@ def test_update_rejects_wheel_without_ytdlp(user_dir, pypi):
         updater.update()
 
 
+def test_zero_padded_version_is_not_reported_as_outdated(user_dir, pypi, monkeypatch):
+    """yt-dlp는 2026.08.19, PyPI는 2026.8.19로 적는다. 같은 버전이다."""
+    pypi["version"] = "2026.8.19"
+    monkeypatch.setattr(updater, "installed_version", lambda: "2026.08.19")
+    body = updater.check()
+    assert body["outdated"] is False, body
+
+
+def test_newer_version_is_still_detected(user_dir, pypi, monkeypatch):
+    pypi["version"] = "2026.9.1"
+    monkeypatch.setattr(updater, "installed_version", lambda: "2026.08.19")
+    assert updater.check()["outdated"] is True
+
+
+def test_version_key_compares_numerically():
+    assert updater._version_key("2026.08.19") == (2026, 8, 19)
+    assert updater._version_key("2026.8.19") == updater._version_key("2026.08.19")
+    assert updater._version_key("2026.10.1") > updater._version_key("2026.9.30")
+
+
 # --- 부팅 ------------------------------------------------------------------
 
 def test_bootstrap_puts_runtime_first(user_dir, pypi):
