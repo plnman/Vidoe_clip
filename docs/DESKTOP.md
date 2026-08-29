@@ -254,6 +254,22 @@ node·deno·bun을 전부 뺀 PATH에 `qjs.exe`만 두고 진단 8단계 통과 
 창을 닫으면 3초 안에 서버가 내려가고 프로세스가 남지 않는다.
 `--port`를 달리해 두 개를 동시에 띄워도 충돌하지 않는다.
 
+**반드시 콘솔 없이도 확인할 것** — 이것 때문에 한 번 크게 틀렸다. 셸에서 실행하면
+GUI 앱이라도 콘솔 핸들을 물려받아 `sys.stdout`이 멀쩡하다. 바탕화면 아이콘으로
+누르면 None이 되고, 그 차이 하나로 서버가 아예 안 떴다. 셸 테스트는 전부 통과했는데
+설치본만 안 되는 상황이 나온다.
+
+```powershell
+Start-Process ".\dist\YoutubeClipper\YoutubeClipper.exe"   # 콘솔 없이
+# 12초쯤 뒤 리스닝 포트가 있는지 확인
+Get-NetTCPConnection -State Listen | Where-Object {
+    $_.OwningProcess -in (Get-Process YoutubeClipper).Id }
+```
+
+**문제가 생기면 로그부터** — `%LOCALAPPDATA%\YoutubeClipper\app.log`.
+창 모드에서는 콘솔에 찍어야 아무도 못 보므로, 시작 시각과 오류를 이 파일에 남긴다.
+서버가 끝내 못 뜨면 메시지 상자로 원인과 로그 위치를 알려준다.
+
 **5) 설치 파일**
 
 `YoutubeClipper-setup.exe` 79MB (푼 크기 253MB). 관리자 권한 없이 사용자 폴더에 설치된다.
@@ -341,7 +357,7 @@ yt-dlp는 `--collect-all yt_dlp` 또는 `hiddenimports`에 추출기를 명시�
 - [x] 두 번 실행해도 포트 충돌이 없다
 - [x] 작업 파일이 사용자 폴더에 쌓이고, 비울 수 있다
 - [x] 설치 파일 하나로 설치·실행된다 (79MB)
-- [x] `pytest` 전부 통과 (133개)
+- [x] `pytest` 전부 통과 (137개)
 - [ ] **Python·ffmpeg이 한 번도 깔린 적 없는 다른 PC**에서 확인
       — 빌드한 PC에서는 PATH를 비워 확인했지만, 진짜 깨끗한 기기에서 한 번 더 볼 것
 - [ ] 맥에서 실제 유튜브 영상으로 완주 (맥이 필요하다)
@@ -357,6 +373,7 @@ yt-dlp는 `--collect-all yt_dlp` 또는 `hiddenimports`에 추출기를 명시�
 | ★ 조회는 되는데 `ffmpeg is not installed`로 다운로드만 실패 | yt-dlp의 `FFmpegFD.available()`은 넘긴 `ffmpeg_location`을 못 본다. **`bin/`을 PATH 앞에 둘 것**(`config.use_bundled_bin`) |
 | ★ quickjs를 넣었는데 안 잡힘 | 실행 파일 이름은 `qjs`다 (2.4) |
 | ★ 한글 경로에서 `UnicodeDecodeError` | ffmpeg 출력을 UTF-8로 읽을 것 (`media._TEXT`) |
+| ★ **설치한 앱을 눌러도 아무 일이 없음** | 창 모드 앱을 콘솔 없이 실행하면 `sys.stdout`이 None이고, uvicorn이 `sys.stdout.isatty()`에서 죽는다. `desktop.ensure_streams()`가 먼저 로그 파일로 바꿔 끼운다 |
 | 화면이 404 | `app/static`이 안 들어감. spec의 `datas` 확인 |
 | `No module named yt_dlp.extractor.…` | 동적 import 누락. `collect_all("yt_dlp")` |
 | 실행은 되는데 다운로드만 실패 | `bin/ffmpeg` 실행 권한. 맥/리눅스는 `chmod +x` |

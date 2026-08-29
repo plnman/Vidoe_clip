@@ -180,7 +180,7 @@ OS 파일 선택 대화상자(pywebview)로 경로를 받는다.
 
 ## 지금 상태
 
-**검증된 것** (테스트 133개, 유튜브 접속 없이 전부 실제로 실행)
+**검증된 것** (테스트 137개, 유튜브 접속 없이 전부 실제로 실행)
 
 - 구간 텍스트 파싱 — 구분자·형식이 달라도 같은 결과
 - ffmpeg 컷·이어붙이기 — 포맷별 출력, 해상도 다른 조각, 소리 없는 조각, 한글 경로
@@ -222,6 +222,7 @@ OS 파일 선택 대화상자(pywebview)로 경로를 받는다.
 | 묶은 앱에서 "ffmpeg is not installed" | yt-dlp의 가용성 판단은 PATH만 본다. `config.use_bundled_bin()` |
 | 묶은 앱이 상대 import로 죽음 | 진입 파일이 `__main__`이 된다. `packaging/entry.py` |
 | quickjs를 넣어도 못 찾음 | 실행 파일 이름은 `qjs`. `downloader.JS_RUNTIMES` |
+| **설치한 앱을 눌러도 아무 일이 없음** | 콘솔 없이 뜨면 `sys.stdout`이 None → uvicorn이 `isatty()`에서 죽음. `desktop.ensure_streams()` |
 
 ## 남은 일 (우선순위 순)
 

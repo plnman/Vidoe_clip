@@ -15,7 +15,7 @@
 - 내 영상 파일 소스 — 같은 영상으로 19.0초 완성본
 - 묶은 앱 — ffmpeg·node가 **전혀 없는 PATH**에서 위 전 과정 완주
 - quickjs만으로 유튜브 챌린지 통과(node/deno 없이)
-- 테스트 133개
+- 테스트 137개
 
 무언가 안 될 때 첫 명령은 여전히 이것이다. 어느 단계에서 막혔는지 한 줄로 나온다:
 
@@ -83,6 +83,11 @@
   `ffmpeg_location`이 보이지 않는다. `config.use_bundled_bin()`이 그래서 있다.
 - **런타임 이름 ≠ 실행 파일 이름.** quickjs의 실행 파일은 `qjs`다.
   `downloader.JS_RUNTIMES`가 이름과 실행 파일 후보를 따로 들고 있는 이유.
+- **콘솔 없이 실행되면 `sys.stdout`이 None이다.** 창 모드로 묶은 앱을 바탕화면에서
+  누를 때가 그렇다. uvicorn이 로깅을 준비하다 `sys.stdout.isatty()`에서 죽어
+  서버가 아예 안 뜬다. `desktop.ensure_streams()`가 먼저 로그 파일로 바꿔 끼운다.
+  **셸에서 띄우면 콘솔을 물려받아 멀쩡하다 — 그래서 개발 중에는 절대 안 드러난다.**
+  묶은 앱은 반드시 `Start-Process`(콘솔 없이)로도 확인할 것.
 
 ## 실행과 테스트
 
@@ -91,7 +96,7 @@
 ./run.sh --lan           # 같은 공유기의 다른 기기에서도
 CLIPPER_PASSWORD=x ./run.sh --share   # 공개 https 주소 (cloudflared 필요)
 
-pytest                   # 133개. 유튜브 접속 없이 전부 실제로 돌린다
+pytest                   # 137개. 유튜브 접속 없이 전부 실제로 돌린다
 python -m app.desktop    # 데스크톱 형태로 (pywebview 필요, --browser로 대체 가능)
 ```
 
