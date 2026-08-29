@@ -63,3 +63,47 @@ def test_open_window_reports_failure_without_pywebview(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
     assert desktop.open_window("http://127.0.0.1:1") is False
+
+
+# --- 묶어서 배포했을 때 (frozen) --------------------------------------------
+
+def test_bundled_bin_goes_to_front_of_path(tmp_path, monkeypatch):
+    """yt-dlp는 '구간만 받기'가 가능한지 볼 때 PATH만 본다. 옵션으로는 부족하다."""
+    from app import config
+
+    bundled = tmp_path / "bin"
+    bundled.mkdir()
+    monkeypatch.setattr(config, "bundled_bin_dir", lambda: bundled)
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    config.use_bundled_bin()
+    import os
+
+    assert os.environ["PATH"].split(os.pathsep)[0] == str(bundled)
+
+
+def test_bundled_bin_is_not_added_twice(tmp_path, monkeypatch):
+    from app import config
+
+    bundled = tmp_path / "bin"
+    bundled.mkdir()
+    monkeypatch.setattr(config, "bundled_bin_dir", lambda: bundled)
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    config.use_bundled_bin()
+    config.use_bundled_bin()
+    import os
+
+    assert os.environ["PATH"].split(os.pathsep).count(str(bundled)) == 1
+
+
+def test_nothing_happens_when_not_bundled(monkeypatch):
+    """개발 중에는 건드리지 않는다."""
+    from app import config
+
+    monkeypatch.setattr(config, "bundled_bin_dir", lambda: None)
+    monkeypatch.setenv("PATH", "/usr/bin")
+    config.use_bundled_bin()
+    import os
+
+    assert os.environ["PATH"] == "/usr/bin"

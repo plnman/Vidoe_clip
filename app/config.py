@@ -39,6 +39,24 @@ def bundled_bin_dir() -> pathlib.Path | None:
     return candidate if candidate.is_dir() else None
 
 
+def use_bundled_bin() -> None:
+    """묶어 온 bin/을 PATH 맨 앞에 둔다.
+
+    옵션으로 알려주는 것만으로는 부족하다. yt-dlp는 '이 포맷을 구간만 받을 수 있나'를
+    판단할 때 downloader 없이 FFmpegFD.available()을 부르는데, 그 자리에서는 우리가 넘긴
+    ffmpeg_location이 보이지 않고 PATH만 본다. 그래서 ffmpeg이 옆에 있는데도
+    "ffmpeg is not installed"로 거절당한다 — 이 앱의 기본 동작인 구간 다운로드가 통째로 막힌다.
+
+    PATH에 넣어두면 그 판단도, qjs 같은 다른 도구 탐색도 한 번에 해결된다.
+    """
+    bundled = bundled_bin_dir()
+    if bundled is None:
+        return
+    current = os.environ.get("PATH", "")
+    if str(bundled) not in current.split(os.pathsep):
+        os.environ["PATH"] = str(bundled) + os.pathsep + current
+
+
 # 데스크톱 앱은 임시 폴더가 청소돼 결과물이 사라지면 곤란하므로 사용자 폴더를 쓴다
 _DEFAULT_WORK_DIR = (
     user_data_dir() / "work" if FROZEN else pathlib.Path(tempfile.gettempdir()) / "yt-clipper"

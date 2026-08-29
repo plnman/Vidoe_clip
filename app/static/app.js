@@ -726,6 +726,69 @@ function showResult(project) {
   show($('resultBox'), true);
 }
 
+/* ---------- 관리 (yt-dlp 갱신 · 작업 파일) ---------- */
+
+function fmtSizeShort(bytes) {
+  const mb = (bytes || 0) / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+}
+
+async function refreshUpdateStatus() {
+  try {
+    const info = await api('/api/updates');
+    if (info.error) {
+      $('ytdlpStatus').textContent = `${info.current || '버전 불명'} · ${info.error}`;
+      return;
+    }
+    $('ytdlpStatus').textContent = info.outdated
+      ? `${info.current} → ${info.latest} 로 갱신할 수 있습니다`
+      : `${info.current} · 최신입니다`;
+    show($('updateBtn'), info.outdated);
+  } catch (err) {
+    $('ytdlpStatus').textContent = err.message;
+  }
+}
+
+function bindMaintenance(health) {
+  // 갱신과 정리는 서버를 켜 둔 PC에서만. 다른 기기에서 남의 파일을 지우면 곤란하다.
+  if (!health.local_files) return;
+  show($('maintCard'), true);
+  $('workDir').textContent = health.work_dir || '';
+
+  $('updateBtn').addEventListener('click', async () => {
+    $('updateBtn').disabled = true;
+    notice($('maintNotice'), '내려받는 중…', 'warn');
+    try {
+      const done = await api('/api/updates/ytdlp', { method: 'POST' });
+      notice($('maintNotice'), `${done.version}으로 갱신했습니다. 앱을 껐다 켜면 적용됩니다.`, 'warn');
+      show($('updateBtn'), false);
+    } catch (err) {
+      notice($('maintNotice'), err.message);
+    } finally {
+      $('updateBtn').disabled = false;
+    }
+  });
+
+  $('clearBtn').addEventListener('click', async () => {
+    $('clearBtn').disabled = true;
+    try {
+      const done = await api('/api/work/clear', { method: 'POST' });
+      notice($('maintNotice'), `작업 파일을 비웠습니다 (${fmtSizeShort(done.freed)} 확보).`, 'warn');
+      state.project = null;
+      show($('segmentCard'), false);
+      show($('editCard'), false);
+      show($('renderCard'), false);
+      show($('videoMeta'), false);
+    } catch (err) {
+      notice($('maintNotice'), err.message);
+    } finally {
+      $('clearBtn').disabled = false;
+    }
+  });
+
+  refreshUpdateStatus();
+}
+
 /* ---------- 초기화 ---------- */
 
 async function init() {
@@ -744,6 +807,7 @@ async function init() {
     $('pad').max = health.defaults.max_pad;
     $('height').value = String(health.defaults.height);
     bindFileSource(health);
+    bindMaintenance(health);
   } catch (err) {
     notice($('health'), err.message);
   }

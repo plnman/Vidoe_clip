@@ -35,6 +35,12 @@ def free_port(preferred: int = 0) -> int:
 def _serve(port: int, server_box: list) -> None:
     import uvicorn
 
+    from . import config as settings
+
+    # 포트는 여기서 정해진다. 알려주지 않으면 시작 안내문이 기본값(8000)을 찍는다.
+    settings.PORT = port
+    settings.HOST = "127.0.0.1"
+
     from .main import app
 
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")

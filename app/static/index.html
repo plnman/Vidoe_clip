@@ -181,6 +181,30 @@
       <p class="hint">구간을 고친 뒤 다시 만들면 됩니다. 이미 받아둔 소스를 쓰므로 다시 다운로드하지 않습니다.</p>
     </div>
   </section>
+
+  <!-- 관리 -->
+  <section class="card" id="maintCard" hidden>
+    <h2>관리</h2>
+    <div class="row">
+      <div class="grow">
+        <b>유튜브 대응 엔진 (yt-dlp)</b>
+        <p class="hint" id="ytdlpStatus" style="margin:2px 0 0">확인 중…</p>
+      </div>
+      <button id="updateBtn" class="ghost" hidden>업데이트</button>
+    </div>
+    <p class="hint">
+      유튜브가 규칙을 바꾸면 다운로드가 갑자기 안 될 수 있습니다. 그럴 때 앱을 다시 설치하지 않고
+      여기서 갱신하면 됩니다.
+    </p>
+    <div class="row" style="margin-top:14px">
+      <div class="grow">
+        <b>작업 파일</b>
+        <p class="hint" id="workDir" style="margin:2px 0 0"></p>
+      </div>
+      <button id="clearBtn" class="ghost">비우기</button>
+    </div>
+    <div id="maintNotice" class="notice" hidden></div>
+  </section>
 </main>
 
 <script src="/app.js"></script>

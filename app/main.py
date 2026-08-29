@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, downloader, media, segments as seg
+from . import config, downloader, media, segments as seg, updater
 from .projects import ProjectError, store
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -113,6 +113,7 @@ def health(request: Request) -> dict:
         "local_files": _is_loopback(request),
         "file_picker": _is_loopback(request) and _picker_available(),
         "max_upload_mb": config.MAX_UPLOAD_BYTES // (1024 * 1024),
+        "work_dir": str(config.WORK_DIR),
         "defaults": {
             "pad": config.DEFAULT_PAD,
             "max_pad": config.MAX_PAD,
@@ -167,6 +168,25 @@ class RenderBody(BaseModel):
 
 
 # --- API -------------------------------------------------------------------
+@app.get("/api/updates", dependencies=[Depends(require_auth)])
+def check_updates() -> dict:
+    """yt-dlp가 낡았는지 본다. 유튜브가 바뀌면 이것부터 갱신해야 한다."""
+    return updater.check()
+
+
+@app.post("/api/updates/ytdlp", dependencies=[Depends(require_auth), Depends(require_loopback)])
+def update_ytdlp() -> dict:
+    try:
+        return updater.update()
+    except updater.UpdateError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/work/clear", dependencies=[Depends(require_auth), Depends(require_loopback)])
+def clear_work() -> dict:
+    return {**store.clear_all(), "dir": str(config.WORK_DIR)}
+
+
 @app.post("/api/parse", dependencies=[Depends(require_auth)])
 def parse(body: ParseBody) -> dict:
     return seg.parse_segments(body.text, body.duration).to_dict()

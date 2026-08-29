@@ -115,20 +115,35 @@ class _Silent:
 # 유튜브는 자바스크립트 챌린지로 봇을 거른다. yt-dlp는 이걸 JS 런타임으로 푸는데,
 # 기본 설정은 deno 하나만 본다. deno가 없는 PC가 대부분이므로 설치된 걸 찾아 넘긴다.
 # (없으면 챌린지를 못 풀어 '봇으로 판단' 오류가 날 수 있다.)
-JS_RUNTIMES = ("deno", "node", "bun", "quickjs")
+# yt-dlp가 부르는 런타임 이름과 실제 실행 파일 이름이 늘 같지는 않다.
+# quickjs의 실행 파일은 qjs다(-ng 갈래는 qjs-ng). 이름 그대로 찾으면 번들해도 못 찾는다.
+JS_RUNTIMES: dict[str, tuple[str, ...]] = {
+    "deno": ("deno",),
+    "node": ("node",),
+    "bun": ("bun",),
+    "quickjs": ("qjs", "qjs-ng", "quickjs"),
+}
+
+
+def _find_runtime(executables: tuple[str, ...]) -> str | None:
+    """함께 묶어 배포한 bin/을 먼저 보고, 없으면 PATH에서 찾는다."""
+    bundled = config.bundled_bin_dir()
+    if bundled:
+        for name in executables:
+            for candidate in (bundled / name, bundled / f"{name}.exe"):
+                if candidate.exists():
+                    return str(candidate)
+    for name in executables:
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
 
 
 def available_js_runtimes() -> dict[str, dict]:
     found = {}
-    bundled = config.bundled_bin_dir()
-    for name in JS_RUNTIMES:
-        path = None
-        if bundled:
-            for candidate in (bundled / name, bundled / f"{name}.exe"):
-                if candidate.exists():
-                    path = str(candidate)
-                    break
-        path = path or shutil.which(name)
+    for name, executables in JS_RUNTIMES.items():
+        path = _find_runtime(executables)
         if path:
             found[name] = {"path": path}
     return found

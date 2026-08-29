@@ -290,6 +290,28 @@ class ProjectStore:
             project.cancel.set()
             shutil.rmtree(project.dir, ignore_errors=True)
 
+    def clear_all(self) -> dict:
+        """열려 있는 프로젝트와 작업 폴더에 남은 찌꺼기를 전부 지운다.
+
+        데스크톱 앱은 작업 파일을 사용자 폴더에 쌓는다(임시 폴더는 OS가 청소해서
+        결과물이 사라질 수 있다). 대신 스스로 비울 방법이 있어야 한다.
+        """
+        with self._lock:
+            ids = list(self._projects)
+        for project_id in ids:
+            self.delete(project_id)
+
+        freed = 0
+        if config.WORK_DIR.is_dir():
+            for leftover in config.WORK_DIR.iterdir():
+                for item in leftover.rglob("*") if leftover.is_dir() else [leftover]:
+                    if item.is_file():
+                        freed += item.stat().st_size
+                shutil.rmtree(leftover, ignore_errors=True) if leftover.is_dir() else leftover.unlink(
+                    missing_ok=True
+                )
+        return {"projects": len(ids), "freed": freed}
+
     def sweep(self) -> None:
         """오래된 프로젝트와 파일을 정리한다."""
         cutoff = time.time() - config.PROJECT_TTL_SECONDS

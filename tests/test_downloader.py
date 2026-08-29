@@ -290,3 +290,20 @@ def test_installed_runtimes_are_passed_to_yt_dlp(monkeypatch):
 def test_no_runtime_leaves_yt_dlp_default_alone(monkeypatch):
     monkeypatch.setattr(downloader.shutil, "which", lambda name: None)
     assert "js_runtimes" not in downloader._base_opts()
+
+
+def test_quickjs_is_found_by_its_real_executable_name(monkeypatch):
+    """quickjs의 실행 파일 이름은 qjs다. 런타임 이름 그대로 찾으면 못 찾는다."""
+    monkeypatch.setattr(downloader.shutil, "which",
+                        lambda name: "/usr/local/bin/qjs" if name == "qjs" else None)
+    assert downloader.available_js_runtimes() == {"quickjs": {"path": "/usr/local/bin/qjs"}}
+
+
+def test_bundled_runtime_wins_over_path(monkeypatch, tmp_path):
+    """함께 묶어 배포한 것이 있으면 그것을 쓴다. 사용자 PC의 낡은 버전에 끌려가지 않게."""
+    bundled = tmp_path / "bin"
+    bundled.mkdir()
+    (bundled / "qjs.exe").write_bytes(b"")
+    monkeypatch.setattr(downloader.config, "bundled_bin_dir", lambda: bundled)
+    monkeypatch.setattr(downloader.shutil, "which", lambda name: "/usr/bin/qjs")
+    assert downloader.available_js_runtimes()["quickjs"]["path"] == str(bundled / "qjs.exe")
