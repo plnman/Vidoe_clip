@@ -270,3 +270,23 @@ def test_doctor_stops_and_explains_on_a_bad_link(tmp_path, monkeypatch):
         "영상 정보 조회", "구간 다운로드", "받은 파일 확인", "잘라 이어붙이기"
     ]
     assert "복사해 알려주세요" in text
+
+
+# --- 자바스크립트 런타임 ------------------------------------------------------
+
+def test_available_js_runtimes_only_reports_installed_ones(monkeypatch):
+    monkeypatch.setattr(downloader.shutil, "which",
+                        lambda name: "/usr/bin/node" if name == "node" else None)
+    assert downloader.available_js_runtimes() == {"node": {"path": "/usr/bin/node"}}
+
+
+def test_installed_runtimes_are_passed_to_yt_dlp(monkeypatch):
+    """yt-dlp 기본값은 deno만 본다. 설치된 걸 찾아 넘겨야 챌린지를 풀 수 있다."""
+    monkeypatch.setattr(downloader.shutil, "which",
+                        lambda name: "/usr/bin/bun" if name == "bun" else None)
+    assert downloader._base_opts()["js_runtimes"] == {"bun": {"path": "/usr/bin/bun"}}
+
+
+def test_no_runtime_leaves_yt_dlp_default_alone(monkeypatch):
+    monkeypatch.setattr(downloader.shutil, "which", lambda name: None)
+    assert "js_runtimes" not in downloader._base_opts()

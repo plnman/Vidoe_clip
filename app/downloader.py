@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -111,9 +112,27 @@ class _Silent:
     def error(self, message): pass
 
 
+# 유튜브는 자바스크립트 챌린지로 봇을 거른다. yt-dlp는 이걸 JS 런타임으로 푸는데,
+# 기본 설정은 deno 하나만 본다. deno가 없는 PC가 대부분이므로 설치된 걸 찾아 넘긴다.
+# (없으면 챌린지를 못 풀어 '봇으로 판단' 오류가 날 수 있다.)
+JS_RUNTIMES = ("deno", "node", "bun", "quickjs")
+
+
+def available_js_runtimes() -> dict[str, dict]:
+    found = {}
+    for name in JS_RUNTIMES:
+        path = shutil.which(name)
+        if path:
+            found[name] = {"path": path}
+    return found
+
+
 def _base_opts() -> dict:
+    runtimes = available_js_runtimes()
     opts: dict = {
         "logger": _Silent(),
+        # 찾은 게 없으면 yt-dlp 기본값(deno)에 맡긴다
+        **({"js_runtimes": runtimes} if runtimes else {}),
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,

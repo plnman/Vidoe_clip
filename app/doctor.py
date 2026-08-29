@@ -28,6 +28,8 @@ class Check:
     detail: str = ""
     hint: str = ""
     skipped: bool = False
+    # 실패해도 전체를 실패로 치지 않는 항목(있으면 좋은 것)
+    advisory: bool = False
 
 
 @dataclass
@@ -36,7 +38,7 @@ class Report:
 
     @property
     def ok(self) -> bool:
-        return all(c.ok for c in self.checks if not c.skipped)
+        return all(c.ok for c in self.checks if not c.skipped and not c.advisory)
 
     def add(self, check: Check) -> Check:
         self.checks.append(check)
@@ -88,7 +90,21 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
     report.add(Check("yt-dlp 버전", True, yt_dlp.version.__version__,
                      "1년 이상 지난 버전이면 pip install -U yt-dlp 하세요"))
 
-    # 3. 링크 해석
+    # 3. 자바스크립트 런타임 — 유튜브 챌린지를 푸는 데 쓰인다
+    runtimes = downloader.available_js_runtimes()
+    report.add(Check(
+        name="자바스크립트 런타임",
+        ok=bool(runtimes),
+        advisory=True,
+        detail=", ".join(runtimes) if runtimes else "없음 (yt-dlp 기본값 deno로 시도합니다)",
+        hint="" if runtimes else (
+            "유튜브는 봇 검사로 자바스크립트 챌린지를 겁니다. 풀 수 있는 런타임이 없으면\n"
+            "     '봇으로 판단' 오류가 날 수 있습니다. 아무거나 하나 설치하세요.\n"
+            "     deno: curl -fsSL https://deno.land/install.sh | sh   또는   node: https://nodejs.org"
+        ),
+    ))
+
+    # 4. 링크 해석
     link = report.add(Check("링크 해석"))
     try:
         normalized = downloader.normalize_url(url)
@@ -98,7 +114,7 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
         _skip_rest(report, ["영상 정보 조회", "구간 다운로드", "받은 파일 확인", "잘라 이어붙이기"])
         return report
 
-    # 4. 정보 조회 (다운로드 없음)
+    # 5. 정보 조회 (다운로드 없음)
     info_check = report.add(Check("영상 정보 조회"))
     try:
         info = downloader.probe_url(normalized)
@@ -109,7 +125,7 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
         _skip_rest(report, ["구간 다운로드", "받은 파일 확인", "잘라 이어붙이기"])
         return report
 
-    # 5. 실제로 5초만 받아 본다
+    # 6. 실제로 5초만 받아 본다
     start = max(0.0, min(info.duration - PROBE_SECONDS - 1, info.duration / 3))
     end = start + PROBE_SECONDS
     fetch = report.add(Check(f"구간 다운로드 ({format_timecode(start)}~{format_timecode(end)}, {height}p)"))
@@ -123,7 +139,7 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
         _skip_rest(report, ["받은 파일 확인", "잘라 이어붙이기"])
         return report
 
-    # 6. 받은 파일이 요청한 길이와 맞는지 (여유분 계산의 전제)
+    # 7. 받은 파일이 요청한 길이와 맞는지 (여유분 계산의 전제)
     shape = report.add(Check("받은 파일 확인"))
     try:
         probed = media.probe(clip)
@@ -137,7 +153,7 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
     except media.MediaError as exc:
         shape.detail = str(exc)
 
-    # 7. 잘라서 이어붙이기까지
+    # 8. 잘라서 이어붙이기까지
     cut = report.add(Check("잘라 이어붙이기"))
     try:
         out = media.render([media.Cut(clip, 0.5, 2.5), media.Cut(clip, 3.0, 4.0)], temp / "out.mp4")
