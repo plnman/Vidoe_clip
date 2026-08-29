@@ -15,7 +15,7 @@
 - 내 영상 파일 소스 — 같은 영상으로 19.0초 완성본
 - 묶은 앱 — ffmpeg·node가 **전혀 없는 PATH**에서 위 전 과정 완주
 - quickjs만으로 유튜브 챌린지 통과(node/deno 없이)
-- 테스트 155개
+- 테스트 160개
 
 무언가 안 될 때 첫 명령은 여전히 이것이다. 어느 단계에서 막혔는지 한 줄로 나온다:
 
@@ -83,6 +83,13 @@
   `ffmpeg_location`이 보이지 않는다. `config.use_bundled_bin()`이 그래서 있다.
 - **런타임 이름 ≠ 실행 파일 이름.** quickjs의 실행 파일은 `qjs`다.
   `downloader.JS_RUNTIMES`가 이름과 실행 파일 후보를 따로 들고 있는 이유.
+- **`hidden` 속성은 `display`를 준 요소를 못 숨긴다.** 브라우저 기본 스타일이라
+  `a.dl { display: inline-block }` 같은 규칙에 진다. '저장' 링크와 버튼이 나란히
+  두 개 보였던 이유다. `style.css` 맨 위의 `[hidden] { display: none !important }`가 막는다.
+- **drawtext에 경로를 넣지 말 것.** 필터그래프 안의 콜론·역슬래시는 탈출 규칙이
+  지독해서 윈도우 경로가 늘 깨진다. 작업 폴더에서 ffmpeg을 실행하고(cwd) 상대 파일명만 쓴다.
+  제목 글자도 `textfile=`로 넘기고 `expansion=none`을 준다 — 안 그러면 `%`와 `\`를
+  drawtext가 확장하려 든다.
 - **앱 창은 브라우저 다운로드를 막는다.** pywebview의 `ALLOW_DOWNLOADS`가 기본 False라
   WebView2가 취소해버린다 — `PC에 저장`을 눌러도 아무 일이 없었다. 앱에서는
   `POST /api/projects/{id}/save`로 OS 저장 창을 띄우고 그 자리로 복사한다.
@@ -100,7 +107,7 @@
 ./run.sh --lan           # 같은 공유기의 다른 기기에서도
 CLIPPER_PASSWORD=x ./run.sh --share   # 공개 https 주소 (cloudflared 필요)
 
-pytest                   # 155개. 유튜브 접속 없이 전부 실제로 돌린다
+pytest                   # 160개. 유튜브 접속 없이 전부 실제로 돌린다
 python -m app.desktop    # 데스크톱 형태로 (pywebview 필요, --browser로 대체 가능)
 ```
 

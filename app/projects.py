@@ -460,7 +460,9 @@ class ProjectStore:
         self._begin(project, "prepare", "소스 준비 중")
         self._pool.submit(self._prepare, project)
 
-    def start_render(self, project: Project, fmt: str, quality: str, separate: bool) -> None:
+    def start_render(
+        self, project: Project, fmt: str, quality: str, separate: bool, titles: bool = False
+    ) -> None:
         if not project.enabled_cuts():
             raise ProjectError("구간을 먼저 입력하세요")
         if project.pending_cuts():
@@ -470,7 +472,7 @@ class ProjectStore:
         except media.MediaError as exc:
             raise ProjectError(str(exc)) from exc
         self._begin(project, "render", "구간별로 저장하는 중" if separate else "이어붙이는 중")
-        self._pool.submit(self._render, project, fmt, quality, separate)
+        self._pool.submit(self._render, project, fmt, quality, separate, titles)
 
     # --- 실행부 -----------------------------------------------------------
     def _prepare(self, project: Project) -> None:
@@ -563,16 +565,19 @@ class ProjectStore:
             path=clip.path,
             start=max(0.0, cut.start - clip.offset),
             end=min(clip.length, cut.end - clip.offset),
+            title=cut.title,
         )
 
-    def _render(self, project: Project, fmt: str, quality: str, separate: bool) -> None:
+    def _render(
+        self, project: Project, fmt: str, quality: str, separate: bool, titles: bool = False
+    ) -> None:
         try:
             spec = media.format_spec(fmt)
             cuts = project.enabled_cuts()
             title = _safe_filename(project.info.title)
 
             if separate:
-                out_path = self._render_each(project, cuts, fmt, quality, spec["ext"])
+                out_path = self._render_each(project, cuts, fmt, quality, spec["ext"], titles)
                 name = f"{title}_구간{len(cuts)}개.zip"
             else:
                 out_path = project.dir / f"result{spec['ext']}"
@@ -581,7 +586,9 @@ class ProjectStore:
                     out_path,
                     fmt=fmt,
                     quality=quality,
+                    titles=titles,
                     on_progress=lambda f: setattr(project.task, "progress", min(0.99, f)),
+                    warn=lambda text: setattr(project.task, "message", text),
                     cancel=project.cancel,
                 )
                 name = f"{title}_편집본{spec['ext']}"
@@ -598,7 +605,9 @@ class ProjectStore:
         except Exception as exc:
             self._finish(project, "error", "렌더 실패", f"알 수 없는 오류: {exc}")
 
-    def _render_each(self, project, cuts: list[Cut], fmt: str, quality: str, ext: str) -> Path:
+    def _render_each(
+        self, project, cuts: list[Cut], fmt: str, quality: str, ext: str, titles: bool = False
+    ) -> Path:
         """구간마다 파일 하나씩 만들어 zip으로 묶는다."""
         parts_dir = project.dir / "parts"
         shutil.rmtree(parts_dir, ignore_errors=True)
@@ -623,6 +632,7 @@ class ProjectStore:
                 part,
                 fmt=fmt,
                 quality=quality,
+                titles=titles,
                 on_progress=on_progress,
                 cancel=project.cancel,
             )

@@ -92,7 +92,9 @@ PROJECT_TTL_SECONDS = _int("CLIPPER_PROJECT_TTL", 12 * 3600)
 MAX_WORKERS = _int("CLIPPER_MAX_WORKERS", 2)
 
 # 구간 앞뒤로 더 받아두는 여유분(초). 이 범위 안에서는 재다운로드 없이 미세조정된다.
-DEFAULT_PAD = _int("CLIPPER_DEFAULT_PAD", 10)
+# 크게 잡을수록 나중에 고치기 편하지만 받는 양이 늘고, 구간 다운로드는 재인코딩이라
+# 그만큼 느려진다(DESIGN.md D5). 몇 초 다듬는 데는 2초면 충분하다.
+DEFAULT_PAD = _int("CLIPPER_DEFAULT_PAD", 2)
 MAX_PAD = _int("CLIPPER_MAX_PAD", 120)
 
 DEFAULT_HEIGHT = _int("CLIPPER_DEFAULT_HEIGHT", 1080)

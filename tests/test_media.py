@@ -144,3 +144,77 @@ def test_render_handles_korean_path(tmp_path):
     _make_source(korean, seconds=6)
     out = media.render([media.Cut(korean, 1.0, 3.0)], tmp_path / "한글 결과.mp4")
     assert media.probe(out).duration == pytest.approx(2.0, abs=0.3)
+
+
+# --- 구간 제목 자막 ----------------------------------------------------------
+
+def _brightness(path, at):
+    """그 시각 한 프레임의 평균 밝기. 글자가 얹히면 달라진다."""
+    out = subprocess.run(
+        ["ffmpeg", "-v", "error", "-ss", str(at), "-i", str(path), "-frames:v", "1",
+         "-vf", "crop=iw:ih/6:0:0,format=gray", "-f", "rawvideo", "-"],
+        capture_output=True, check=True,
+    ).stdout
+    return sum(out) / max(1, len(out))
+
+
+def test_titles_are_drawn_only_during_their_own_segment(tmp_path):
+    """제목은 그 구간이 나오는 동안에만 화면 위쪽에 보여야 한다."""
+    if media.find_font() is None:
+        pytest.skip("이 컴퓨터에 쓸 글꼴이 없다")
+
+    source = _make_source(tmp_path / "src.mp4", seconds=12, size="640x360")
+    cuts = [
+        media.Cut(source, 0.0, 3.0, title="첫 번째 구간 제목"),
+        media.Cut(source, 5.0, 8.0, title=""),  # 제목 없는 구간
+    ]
+    plain = media.render(cuts, tmp_path / "plain.mp4")
+    titled = media.render(cuts, tmp_path / "titled.mp4", titles=True)
+
+    assert media.probe(titled).duration == pytest.approx(6.0, abs=0.3)
+    # 제목이 있는 앞 구간은 위쪽 띠가 달라지고, 제목 없는 뒤 구간은 그대로여야 한다
+    assert abs(_brightness(titled, 1.5) - _brightness(plain, 1.5)) > 1.0
+    assert abs(_brightness(titled, 4.5) - _brightness(plain, 4.5)) < 0.5
+
+
+def test_titles_off_leaves_the_video_untouched(tmp_path):
+    source = _make_source(tmp_path / "src2.mp4", seconds=6, size="320x240")
+    cuts = [media.Cut(source, 0.0, 3.0, title="제목 있음")]
+    plain = media.render(cuts, tmp_path / "off.mp4", titles=False)
+    assert media.probe(plain).duration == pytest.approx(3.0, abs=0.3)
+    assert not list(tmp_path.glob(".titles-*"))
+
+
+def test_titles_survive_a_missing_font(tmp_path, monkeypatch):
+    """글꼴이 없다고 완성본을 못 받으면 곤란하다. 제목만 빼고 만든다."""
+    monkeypatch.setattr(media, "find_font", lambda: None)
+    warnings = []
+    source = _make_source(tmp_path / "src3.mp4", seconds=6, size="320x240")
+    out = media.render(
+        [media.Cut(source, 0.0, 3.0, title="제목")],
+        tmp_path / "nofont.mp4",
+        titles=True,
+        warn=warnings.append,
+    )
+    assert media.probe(out).duration == pytest.approx(3.0, abs=0.3)
+    assert warnings and "글꼴" in warnings[0]
+
+
+def test_title_workdir_is_cleaned_up(tmp_path):
+    if media.find_font() is None:
+        pytest.skip("이 컴퓨터에 쓸 글꼴이 없다")
+    source = _make_source(tmp_path / "src4.mp4", seconds=6, size="320x240")
+    media.render([media.Cut(source, 0.0, 3.0, title="제목")], tmp_path / "clean.mp4", titles=True)
+    assert not list(tmp_path.glob(".titles-*"))
+
+
+def test_special_characters_in_a_title_do_not_break_the_filtergraph(tmp_path):
+    """제목은 사용자가 붙여넣은 아무 문장이다. 콜론·쉼표·따옴표가 들어와도 돌아야 한다."""
+    if media.find_font() is None:
+        pytest.skip("이 컴퓨터에 쓸 글꼴이 없다")
+    source = _make_source(tmp_path / "src5.mp4", seconds=6, size="320x240")
+    nasty = r"AI: '행위자(Agent)'다, 그리고 [주석] 50% \ 끝"
+    out = media.render(
+        [media.Cut(source, 0.0, 3.0, title=nasty)], tmp_path / "nasty.mp4", titles=True
+    )
+    assert media.probe(out).duration == pytest.approx(3.0, abs=0.3)

@@ -47,6 +47,7 @@ class Cut:
     path: Path
     start: float
     end: float
+    title: str = ""
 
     @property
     def duration(self) -> float:
@@ -109,10 +110,13 @@ def probe(path: Path) -> MediaInfo:
     )
 
 
-def _run_with_progress(cmd, total_seconds: float, on_progress, cancel: threading.Event | None) -> None:
+def _run_with_progress(
+    cmd, total_seconds: float, on_progress, cancel: threading.Event | None, cwd: Path | None = None
+) -> None:
     """ffmpeg을 돌리며 진행률(0~1)을 보고한다."""
     proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, **_TEXT
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
+        cwd=str(cwd) if cwd else None, **_TEXT,
     )
     tail: list[str] = []
 
@@ -150,6 +154,74 @@ def _run_with_progress(cmd, total_seconds: float, on_progress, cancel: threading
         raise Cancelled("취소되었습니다")
     if proc.returncode != 0:
         raise MediaError("ffmpeg 실패: " + " / ".join(tail[-6:] or ["원인 불명"]))
+
+
+# 구간 제목을 화면에 얹으려면 글꼴 파일이 필요하다. 한글이 나와야 하므로
+# 한글을 담은 것을 먼저 찾는다. 함께 묶어 배포할 때는 bin/font.ttf를 넣으면 그게 1순위다.
+_FONT_CANDIDATES = (
+    r"C:\Windows\Fonts\malgun.ttf",
+    r"C:\Windows\Fonts\NanumGothic.ttf",
+    r"C:\Windows\Fonts\gulim.ttc",
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+    "/Library/Fonts/AppleGothic.ttf",
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+)
+
+
+def find_font() -> Path | None:
+    bundled = config.bundled_bin_dir()
+    if bundled:
+        for name in ("font.ttf", "font.ttc", "font.otf"):
+            candidate = bundled / name
+            if candidate.exists():
+                return candidate
+    for candidate in _FONT_CANDIDATES:
+        path = Path(candidate)
+        if path.exists():
+            return path
+    return None
+
+
+TITLE_FONT_NAME = "font.ttf"
+
+
+def _title_filters(cuts: list[Cut], workdir: Path) -> list[str]:
+    """구간마다 제목을 화면 위쪽에 얹는 drawtext 필터.
+
+    파일 이름을 경로 없이 쓰는 이유 — 필터그래프 안의 경로는 탈출 규칙이 지독하다.
+    윈도우의 `C:\\...`는 콜론이 옵션 구분자와 겹쳐서 어떻게 탈출해도 잘 깨진다.
+    그래서 ffmpeg을 이 폴더에서 실행하고(cwd) 여기서는 `title0.txt` 같은 이름만 쓴다.
+    글꼴도 같은 이유로 이 폴더에 복사해 둔다.
+
+    제목 글자 자체도 파일로 넘긴다. 콜론·쉼표·따옴표가 든 문장을 그대로 넣으면
+    같은 문제가 생기는데, 제목은 사용자가 붙여넣은 아무 문장이기 때문이다.
+    """
+    filters = []
+    offset = 0.0
+    for index, cut in enumerate(cuts):
+        title = (cut.title or "").strip()
+        if title:
+            (workdir / f"title{index}.txt").write_text(title, encoding="utf-8")
+            filters.append(
+                "drawtext="
+                f"fontfile={TITLE_FONT_NAME}:"
+                f"textfile=title{index}.txt:"
+                # 제목은 사용자가 쓴 문장 그대로여야 한다. 끄지 않으면 drawtext가
+                # `%{...}`를 시각·파일명 같은 것으로 바꾸려 들고 `\`도 escape로 삼는다.
+                "expansion=none:"
+                "fontcolor=white@0.95:"
+                # 화면 높이에 맞춰 커지고 작아진다. 어떤 해상도에서도 비슷하게 보이도록.
+                "fontsize=h/24:"
+                "box=1:boxcolor=black@0.4:boxborderw=14:"
+                "x=(w-text_w)/2:y=h*0.04:"
+                # 그 구간이 나오는 동안만. 완성본 기준 시각이다.
+                f"enable=between(t\\,{offset:.3f}\\,{offset + cut.duration:.3f})"
+            )
+        offset += cut.duration
+    return filters
 
 
 def _norm_filters(info: MediaInfo, width: int, height: int, fps: float) -> str:
@@ -241,10 +313,16 @@ def render(
     *,
     fmt: str = DEFAULT_FORMAT,
     quality: str = "fast",
+    titles: bool = False,
     on_progress=None,
+    warn=None,
     cancel: threading.Event | None = None,
 ) -> Path:
-    """조각들을 순서대로 잘라 하나로 이어붙인다."""
+    """조각들을 순서대로 잘라 하나로 이어붙인다.
+
+    titles=True면 구간 제목을 화면 위쪽에 자막처럼 얹는다. 글꼴을 못 찾으면
+    제목만 빼고 나머지는 그대로 만든다 — 장식 때문에 완성본을 못 받으면 곤란하다.
+    """
     spec = format_spec(fmt)
     cuts = [c for c in cuts if c.duration > 0.01]
     if not cuts:
@@ -297,18 +375,36 @@ def render(
     labels = ("[v]" if want_video else "") + ("[a]" if want_audio else "")
     parts.append("".join(concat_inputs) + concat + labels)
 
+    # 제목은 이어붙인 뒤에 얹는다. 완성본 기준 시각이라야 구간마다 제때 나온다.
+    video_label = "[v]"
+    workdir: Path | None = None
+    if titles and want_video and any((c.title or "").strip() for c in cuts):
+        font = find_font()
+        if font is None:
+            if warn:
+                warn("글꼴을 찾지 못해 구간 제목은 넣지 못했습니다")
+        else:
+            workdir = out_path.parent / f".titles-{out_path.stem}"
+            shutil.rmtree(workdir, ignore_errors=True)
+            workdir.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(font, workdir / TITLE_FONT_NAME)
+            drawn = _title_filters(cuts, workdir)
+            if drawn:
+                parts.append("[v]" + ",".join(drawn) + "[vt]")
+                video_label = "[vt]"
+
     maps: list[str] = []
     if fmt == "gif":
         # 팔레트를 따로 뽑아야 색이 뭉개지지 않는다
         gif_fps, gif_width = _quality_of(spec, quality)
         parts.append(
-            f"[v]fps={gif_fps},scale={gif_width}:-1:flags=lanczos,split[gv][gp];"
+            f"{video_label}fps={gif_fps},scale={gif_width}:-1:flags=lanczos,split[gv][gp];"
             f"[gp]palettegen=stats_mode=diff[pal];[gv][pal]paletteuse=dither=bayer:bayer_scale=3[out]"
         )
         maps += ["-map", "[out]"]
     else:
         if want_video:
-            maps += ["-map", "[v]"]
+            maps += ["-map", video_label]
         if want_audio:
             maps += ["-map", "[a]"]
 
@@ -317,7 +413,12 @@ def render(
     cmd += _encode_args(fmt, quality, want_video, want_audio)
     cmd.append(str(out_path))
 
-    _run_with_progress(cmd, total, on_progress, cancel)
+    try:
+        # 제목을 넣을 때는 그 폴더에서 실행한다. 필터그래프가 상대 파일명을 쓰기 때문이다.
+        _run_with_progress(cmd, total, on_progress, cancel, cwd=workdir)
+    finally:
+        if workdir is not None:
+            shutil.rmtree(workdir, ignore_errors=True)
     if not out_path.exists() or out_path.stat().st_size == 0:
         raise MediaError("결과 파일이 만들어지지 않았습니다")
     return out_path

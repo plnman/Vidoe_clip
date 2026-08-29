@@ -700,6 +700,7 @@ async function render() {
         format: $('format').value,
         quality: $('quality').value,
         separate: $('separate').checked,
+        titles: $('titles').checked,
       },
     });
     startPolling();

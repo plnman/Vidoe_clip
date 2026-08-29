@@ -49,6 +49,21 @@ try {
         Invoke-WebRequest -Uri $url -OutFile $qjs
     }
 
+    # --- 글꼴 ---------------------------------------------------------------
+    # 구간 제목을 화면에 얹으려면 글꼴 파일이 있어야 한다. 윈도우에는 보통 맑은 고딕이
+    # 있지만 한국어 글꼴이 빠진 설치본도 있어서, 한글이 확실히 나오는 것을 함께 넣는다.
+    # 나눔고딕은 OFL이라 배포에 문제가 없다. 2MB대다.
+    $font = Join-Path $binDir "font.ttf"
+    if (Test-Path $font) {
+        Write-Host "글꼴: 이미 있음 — 건너뜁니다"
+    } else {
+        $url = "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+        Write-Host "글꼴 받는 중 ... $url"
+        Invoke-WebRequest -Uri $url -OutFile $font
+        $license = Join-Path $binDir "FONT-LICENSE.txt"
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumgothic/OFL.txt" -OutFile $license
+    }
+
     Write-Host ""
     Write-Host "packaging/bin 준비 완료:"
     Get-ChildItem $binDir | ForEach-Object {

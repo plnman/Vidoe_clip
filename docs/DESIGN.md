@@ -190,7 +190,7 @@ OS 파일 선택 대화상자(pywebview)로 경로를 받는다.
 
 ## 지금 상태
 
-**검증된 것** (테스트 155개, 유튜브 접속 없이 전부 실제로 실행)
+**검증된 것** (테스트 160개, 유튜브 접속 없이 전부 실제로 실행)
 
 - 구간 텍스트 파싱 — 구분자·형식이 달라도 같은 결과
 - ffmpeg 컷·이어붙이기 — 포맷별 출력, 해상도 다른 조각, 소리 없는 조각, 한글 경로
@@ -234,6 +234,9 @@ OS 파일 선택 대화상자(pywebview)로 경로를 받는다.
 | quickjs를 넣어도 못 찾음 | 실행 파일 이름은 `qjs`. `downloader.JS_RUNTIMES` |
 | **설치한 앱을 눌러도 아무 일이 없음** | 콘솔 없이 뜨면 `sys.stdout`이 None → uvicorn이 `isatty()`에서 죽음. `desktop.ensure_streams()` |
 | **'PC에 저장'을 눌러도 아무 일이 없음** | pywebview `ALLOW_DOWNLOADS` 기본 False → WebView2가 다운로드를 취소. OS 저장 창으로 바꿈 |
+| **'PC에 저장' 버튼이 두 개 보임** | `hidden`은 브라우저 기본 스타일이라 `display`를 준 요소에 진다. `[hidden]{display:none!important}` |
+| 제목 자막에서 ffmpeg이 경로 오류 | 필터그래프 안의 윈도우 경로는 탈출이 지독하다. cwd를 옮기고 상대 파일명만 쓴다 |
+| 제목에 `%`나 `\`가 있으면 렌더 실패 | drawtext가 그것을 확장하려 든다. `expansion=none` |
 
 ## 남은 일 (우선순위 순)
 

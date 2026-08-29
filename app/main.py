@@ -167,6 +167,8 @@ class RenderBody(BaseModel):
     quality: str = "fast"
     # 이어붙이지 않고 구간마다 파일 하나씩 만들어 zip으로 준다
     separate: bool = False
+    # 구간 제목을 화면 위쪽에 자막처럼 얹는다
+    titles: bool = False
 
 
 # --- API -------------------------------------------------------------------
@@ -337,7 +339,7 @@ def prepare(project_id: str) -> dict:
 def render(project_id: str, body: RenderBody) -> dict:
     project = store.get(project_id)
     try:
-        store.start_render(project, body.format, body.quality, body.separate)
+        store.start_render(project, body.format, body.quality, body.separate, body.titles)
     except ProjectError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return project.to_dict()

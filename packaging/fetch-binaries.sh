@@ -63,6 +63,19 @@ else
   fi
 fi
 
+# --- 글꼴 -------------------------------------------------------------------
+# 구간 제목을 화면에 얹으려면 글꼴 파일이 있어야 한다. 한글이 확실히 나오는 것을
+# 함께 넣는다. 나눔고딕은 OFL이라 배포에 문제가 없다. 2MB대다.
+if [ -f "$BIN/font.ttf" ]; then
+  echo "글꼴: 이미 있음 — 건너뜁니다"
+else
+  echo "글꼴 받는 중 (NanumGothic) ..."
+  curl -fsSL "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumgothic/NanumGothic-Regular.ttf" \
+       -o "$BIN/font.ttf"
+  curl -fsSL "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumgothic/OFL.txt" \
+       -o "$BIN/FONT-LICENSE.txt" || true
+fi
+
 echo
 echo "packaging/bin 준비 완료:"
 ls -lh "$BIN" | tail -n +2 | awk '{printf "  %-24s %8s\n", $9, $5}'

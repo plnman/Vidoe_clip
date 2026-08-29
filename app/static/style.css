@@ -30,6 +30,10 @@
 
 * { box-sizing: border-box; }
 
+/* hidden은 브라우저 기본 스타일로만 display:none이라, display를 직접 준 요소는
+   숨겨지지 않는다. 그래서 '저장' 링크와 버튼이 나란히 두 개 보였다. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);

@@ -128,6 +128,9 @@ def test_full_flow_prepare_edit_render_download(client):
     assert project["pending"] == 3
     assert project["total_duration"] == 30
 
+    # 이 테스트는 여유분 동작 자체를 본다. 기본값이 바뀌어도 흔들리지 않게 고정한다.
+    client.patch(f"/api/projects/{pid}/options", json={"pad": 10})
+
     client.post(f"/api/projects/{pid}/prepare")
     project = wait(client, pid)
     assert project["task"]["status"] == "done", project["task"]
@@ -195,6 +198,8 @@ def test_overlapping_needs_are_downloaded_once(client):
     pid = project["id"]
     # 두 구간이 여유분까지 합치면 붙는다 -> 한 번만 받아야 한다
     client.post(f"/api/projects/{pid}/segments", json={"text": "1:00-1:10 가\n1:15-1:25 나"})
+    # 여유분 동작 자체를 보는 테스트다. 기본값이 바뀌어도 흔들리지 않게 고정한다.
+    client.patch(f"/api/projects/{pid}/options", json={"pad": 10})
     client.post(f"/api/projects/{pid}/prepare")
     project = wait(client, pid)
     assert project["pending"] == 0
