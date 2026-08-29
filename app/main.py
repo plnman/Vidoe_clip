@@ -54,6 +54,9 @@ def announce() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     announce()
+    # 오래된 작업 파일은 새 영상을 열 때 치워진다. 그런데 앱을 껐다 켜기만 하고
+    # 새로 열지 않으면 계속 쌓인다. 켤 때도 한 번 치워서 스스로 정리되게 한다.
+    store.sweep()
     yield
 
 
@@ -188,9 +191,42 @@ def update_ytdlp() -> dict:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@app.get("/api/work", dependencies=[Depends(require_auth), Depends(require_loopback)])
+def work_usage() -> dict:
+    """작업 파일이 지금 얼마나 쌓였는지.
+
+    경로만 보여주면 '이걸 어쩌라는 건지' 알 수 없다. 용량과 개수가 있어야
+    지금 비워야 할지 판단할 수 있다.
+    """
+    total, files = 0, 0
+    if config.WORK_DIR.is_dir():
+        for path in config.WORK_DIR.rglob("*"):
+            if path.is_file():
+                try:
+                    total += path.stat().st_size
+                except OSError:  # 방금 지워졌을 수 있다
+                    continue
+                files += 1
+    return {
+        "dir": str(config.WORK_DIR),
+        "bytes": total,
+        "files": files,
+        "projects": len(store.open_projects()),
+    }
+
+
 @app.post("/api/work/clear", dependencies=[Depends(require_auth), Depends(require_loopback)])
 def clear_work() -> dict:
     return {**store.clear_all(), "dir": str(config.WORK_DIR)}
+
+
+@app.post("/api/work/open", dependencies=[Depends(require_auth), Depends(require_loopback)])
+def open_work_folder() -> dict:
+    """작업 폴더를 탐색기로 연다. 경로를 손으로 옮겨 적지 않아도 되게."""
+    from . import desktop
+
+    config.WORK_DIR.mkdir(parents=True, exist_ok=True)
+    return {"opened": desktop.reveal(config.WORK_DIR)}
 
 
 @app.post("/api/parse", dependencies=[Depends(require_auth)])

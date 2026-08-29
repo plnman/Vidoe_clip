@@ -60,7 +60,13 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(projects.downloader, "probe_url", fake_probe)
     monkeypatch.setattr(projects.downloader, "fetch_range", fake_fetch)
 
-    with TestClient(app) as test_client:
+    # store는 모듈 하나짜리 싱글턴이라 앞 테스트의 프로젝트가 남는다.
+    # 개수를 세는 테스트가 그것 때문에 흔들리지 않도록 비우고 시작한다.
+    projects.store.clear_all()
+
+    # 이 앱은 자기 PC에서 도는 것이 정상이다. 관리 기능은 루프백에서만 받으므로
+    # 테스트도 그 조건으로 맞춘다.
+    with TestClient(app, client=("127.0.0.1", 41000)) as test_client:
         test_client.fetch_calls = calls
         yield test_client
 
@@ -380,3 +386,65 @@ def test_whole_download_leaves_every_cut_editable(client):
     assert project["pending"] == 0
     assert project["cuts"][0]["ready"] is True
     assert len(client.fetch_calls) == 1, "다시 받을 일이 없어야 한다"
+
+
+# --- 작업 파일 관리 ---------------------------------------------------------
+
+def test_work_usage_reports_what_is_piled_up(client):
+    """경로만 보여주면 뭘 하라는 건지 알 수 없다. 용량과 개수가 있어야 판단한다."""
+    empty = client.get("/api/work").json()
+    assert empty["files"] == 0 and empty["bytes"] == 0
+    assert empty["dir"].endswith("work")
+
+    project = make_project(client)
+    pid = project["id"]
+    client.post(f"/api/projects/{pid}/segments", json={"text": "1:00-1:10 하나"})
+    client.post(f"/api/projects/{pid}/prepare")
+    wait(client, pid)
+
+    used = client.get("/api/work").json()
+    assert used["files"] > 0
+    assert used["bytes"] > 0
+    assert used["projects"] == 1
+
+
+def test_clearing_frees_the_space_and_the_report_agrees(client):
+    project = make_project(client)
+    pid = project["id"]
+    client.post(f"/api/projects/{pid}/segments", json={"text": "1:00-1:10 하나"})
+    client.post(f"/api/projects/{pid}/prepare")
+    wait(client, pid)
+    before = client.get("/api/work").json()["bytes"]
+
+    done = client.post("/api/work/clear").json()
+    assert done["freed"] == pytest.approx(before, rel=0.05)
+
+    after = client.get("/api/work").json()
+    assert after["files"] == 0 and after["projects"] == 0
+
+
+def test_sweep_removes_folders_left_behind_by_a_previous_run(client, tmp_path, monkeypatch):
+    """앱을 껐다 켜면 프로젝트 목록은 비지만 받아둔 영상은 폴더에 남는다.
+
+    아무도 다시 쓸 수 없는 파일이라 그대로 두면 쌓이기만 한다.
+    """
+    import os
+    import time as clock
+
+    orphan = config.WORK_DIR / "p_지난번실행"
+    orphan.mkdir(parents=True, exist_ok=True)
+    (orphan / "video.mp4").write_bytes(b"0" * 1024)
+    old = clock.time() - config.PROJECT_TTL_SECONDS - 60
+    os.utime(orphan, (old, old))
+
+    projects.store.sweep()
+    assert not orphan.exists()
+
+
+def test_sweep_keeps_a_folder_that_is_still_fresh(client):
+    fresh = config.WORK_DIR / "p_방금만든것"
+    fresh.mkdir(parents=True, exist_ok=True)
+    (fresh / "video.mp4").write_bytes(b"0")
+
+    projects.store.sweep()
+    assert fresh.exists(), "아직 쓸 수 있는 것을 지우면 안 된다"

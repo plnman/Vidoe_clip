@@ -321,7 +321,10 @@ function startPolling() {
     try {
       const project = await api(`/api/projects/${state.project.id}`);
       applyProject(project, seq);
-      if (project.task.status !== 'running') stopPolling();
+      if (project.task.status !== 'running') {
+        stopPolling();
+        if (!$('maintCard').hidden) refreshWorkUsage();
+      }
     } catch (err) {
       stopPolling();
       notice($('prepareError'), err.message);
@@ -824,11 +827,36 @@ async function refreshUpdateStatus() {
   }
 }
 
+async function refreshWorkUsage() {
+  try {
+    const use = await api('/api/work');
+    $('workDir').textContent = use.dir;
+    show($('openWorkBtn'), true);
+    if (!use.files) {
+      $('workUsage').textContent = '지금은 비어 있습니다';
+      $('clearBtn').disabled = true;
+      return;
+    }
+    const editing = use.projects ? ` · 편집 중인 영상 ${use.projects}개` : '';
+    $('workUsage').textContent = `지금 ${fmtSizeShort(use.bytes)}${editing}`;
+    $('clearBtn').disabled = false;
+  } catch (err) {
+    $('workUsage').textContent = err.message;
+  }
+}
+
 function bindMaintenance(health) {
   // 갱신과 정리는 서버를 켜 둔 PC에서만. 다른 기기에서 남의 파일을 지우면 곤란하다.
   if (!health.local_files) return;
   show($('maintCard'), true);
-  $('workDir').textContent = health.work_dir || '';
+
+  $('openWorkBtn').addEventListener('click', async () => {
+    try {
+      await api('/api/work/open', { method: 'POST' });
+    } catch (err) {
+      notice($('maintNotice'), err.message);
+    }
+  });
 
   $('updateBtn').addEventListener('click', async () => {
     $('updateBtn').disabled = true;
@@ -845,23 +873,32 @@ function bindMaintenance(health) {
   });
 
   $('clearBtn').addEventListener('click', async () => {
+    // 편집 중인 것까지 사라진다. 되돌릴 수 없으니 한 번 묻는다.
+    const warning = state.project
+      ? '편집 중인 영상도 함께 사라집니다. 만든 결과물은 PC에 저장하셨나요?\n\n비울까요?'
+      : '받아둔 영상을 모두 지웁니다. 비울까요?';
+    if (!window.confirm(warning)) return;
+
     $('clearBtn').disabled = true;
     try {
       const done = await api('/api/work/clear', { method: 'POST' });
-      notice($('maintNotice'), `작업 파일을 비웠습니다 (${fmtSizeShort(done.freed)} 확보).`, 'warn');
+      notice($('maintNotice'), `비웠습니다 — ${fmtSizeShort(done.freed)} 확보.`, 'warn');
       state.project = null;
+      stopPolling();
       show($('segmentCard'), false);
       show($('editCard'), false);
       show($('renderCard'), false);
       show($('videoMeta'), false);
+      show($('resultBox'), false);
     } catch (err) {
       notice($('maintNotice'), err.message);
     } finally {
-      $('clearBtn').disabled = false;
+      refreshWorkUsage();
     }
   });
 
   refreshUpdateStatus();
+  refreshWorkUsage();
 }
 
 /* ---------- 초기화 ---------- */

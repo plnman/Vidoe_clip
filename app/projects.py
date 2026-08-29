@@ -359,35 +359,64 @@ class ProjectStore:
             project.cancel.set()
             shutil.rmtree(project.dir, ignore_errors=True)
 
+    def open_projects(self) -> list[Project]:
+        with self._lock:
+            return list(self._projects.values())
+
     def clear_all(self) -> dict:
         """열려 있는 프로젝트와 작업 폴더에 남은 찌꺼기를 전부 지운다.
 
         데스크톱 앱은 작업 파일을 사용자 폴더에 쌓는다(임시 폴더는 OS가 청소해서
         결과물이 사라질 수 있다). 대신 스스로 비울 방법이 있어야 한다.
         """
+        # 지우기 전에 재야 한다. 프로젝트를 먼저 지우면 그 폴더는 이미 사라져서
+        # 얼마나 비웠는지 늘 0으로 보고하게 된다.
+        freed = 0
+        if config.WORK_DIR.is_dir():
+            for item in config.WORK_DIR.rglob("*"):
+                if item.is_file():
+                    try:
+                        freed += item.stat().st_size
+                    except OSError:
+                        continue
+
         with self._lock:
             ids = list(self._projects)
         for project_id in ids:
             self.delete(project_id)
 
-        freed = 0
         if config.WORK_DIR.is_dir():
             for leftover in config.WORK_DIR.iterdir():
-                for item in leftover.rglob("*") if leftover.is_dir() else [leftover]:
-                    if item.is_file():
-                        freed += item.stat().st_size
-                shutil.rmtree(leftover, ignore_errors=True) if leftover.is_dir() else leftover.unlink(
-                    missing_ok=True
-                )
+                if leftover.is_dir():
+                    shutil.rmtree(leftover, ignore_errors=True)
+                else:
+                    leftover.unlink(missing_ok=True)
         return {"projects": len(ids), "freed": freed}
 
     def sweep(self) -> None:
-        """오래된 프로젝트와 파일을 정리한다."""
+        """오래된 프로젝트와 파일을 정리한다.
+
+        메모리에 남은 프로젝트뿐 아니라 디스크에 버려진 폴더도 함께 치운다.
+        앱을 껐다 켜면 프로젝트 목록은 비지만 받아둔 영상은 폴더에 그대로 남는데,
+        그건 아무도 다시 쓸 수 없는 파일이라 계속 쌓이기만 한다.
+        """
         cutoff = time.time() - config.PROJECT_TTL_SECONDS
         with self._lock:
             stale = [p for p in self._projects.values() if p.touched_at < cutoff]
+            known = {p.dir for p in self._projects.values()}
         for project in stale:
             self.delete(project.id)
+
+        if not config.WORK_DIR.is_dir():
+            return
+        for leftover in config.WORK_DIR.iterdir():
+            if not leftover.is_dir() or leftover in known:
+                continue
+            try:
+                if leftover.stat().st_mtime < cutoff:
+                    shutil.rmtree(leftover, ignore_errors=True)
+            except OSError:
+                continue
 
     # --- 편집 -------------------------------------------------------------
     def set_segments(self, project: Project, segments: list[Segment]) -> None:
