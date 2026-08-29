@@ -1,5 +1,7 @@
 # 유튜브 구간 편집기
 
+> **https://github.com/plnman/Vidoe_clip**
+
 유튜브 링크와 구간 목록을 주면 그 부분만 잘라 하나로 이어붙여 주는 웹앱.
 구간은 제미나이 같은 도구가 정리해 준 텍스트를 **그대로 붙여넣으면** 됩니다.
 
@@ -228,6 +230,15 @@ CLIPPER_COOKIES_FROM_BROWSER=chrome ./run.sh
 | `CLIPPER_MAX_TOTAL_SECONDS` | `10800` | 완성본 길이 상한 |
 | `CLIPPER_PROJECT_TTL` | `43200` | 작업 파일 보관 시간(초) |
 | `CLIPPER_MAX_WORKERS` | `2` | 동시 처리 작업 수 |
+
+## 문서
+
+| 문서 | 읽을 사람 |
+|---|---|
+| `README.md` (이 문서) | 쓰는 사람 |
+| `CLAUDE.md` | 코드를 고치는 사람 — 작업 규칙, 이미 밟은 함정 |
+| `docs/DESIGN.md` | 구조를 바꾸려는 사람 — 왜 이렇게 만들었는지 |
+| `docs/DESKTOP.md` | 설치형 앱으로 만들려는 사람 |
 
 ## 구조
 

@@ -14,8 +14,20 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
-FFPROBE = shutil.which("ffprobe") or "ffprobe"
+from . import config
+
+def _tool(name: str) -> str:
+    """함께 묶어 배포한 것을 먼저 쓰고, 없으면 PATH에서 찾는다."""
+    bundled = config.bundled_bin_dir()
+    if bundled:
+        for candidate in (bundled / name, bundled / f"{name}.exe"):
+            if candidate.exists():
+                return str(candidate)
+    return shutil.which(name) or name
+
+
+FFMPEG = _tool("ffmpeg")
+FFPROBE = _tool("ffprobe")
 
 _PROGRESS_RE = re.compile(r"^(out_time_us|out_time_ms|progress)=(.*)$")
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import sys
 import tempfile
 
 
@@ -14,7 +15,34 @@ def _int(name: str, default: int) -> int:
         return default
 
 
-_DEFAULT_WORK_DIR = pathlib.Path(tempfile.gettempdir()) / "yt-clipper"
+# 데스크톱 앱으로 묶였는지. PyInstaller가 실행 파일로 만들면 True.
+FROZEN = getattr(sys, "frozen", False)
+
+
+def user_data_dir() -> pathlib.Path:
+    """OS별 사용자 데이터 폴더. 데스크톱 앱일 때 작업 파일을 여기에 둔다."""
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or (pathlib.Path.home() / "AppData" / "Local")
+    elif sys.platform == "darwin":
+        base = pathlib.Path.home() / "Library" / "Application Support"
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or (pathlib.Path.home() / ".local" / "share")
+    return pathlib.Path(base) / "YoutubeClipper"
+
+
+def bundled_bin_dir() -> pathlib.Path | None:
+    """함께 묶어 배포한 ffmpeg 등이 있는 폴더. 개발 중에는 없다."""
+    if not FROZEN:
+        return None
+    # PyInstaller onedir: 실행 파일 옆의 bin/
+    candidate = pathlib.Path(sys.executable).parent / "bin"
+    return candidate if candidate.is_dir() else None
+
+
+# 데스크톱 앱은 임시 폴더가 청소돼 결과물이 사라지면 곤란하므로 사용자 폴더를 쓴다
+_DEFAULT_WORK_DIR = (
+    user_data_dir() / "work" if FROZEN else pathlib.Path(tempfile.gettempdir()) / "yt-clipper"
+)
 WORK_DIR = pathlib.Path(os.environ.get("CLIPPER_WORK_DIR") or _DEFAULT_WORK_DIR).resolve()
 
 # 실행 스크립트가 알려주는 바인딩 주소. 시작 안내문에만 쓴다.

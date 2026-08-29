@@ -120,8 +120,15 @@ JS_RUNTIMES = ("deno", "node", "bun", "quickjs")
 
 def available_js_runtimes() -> dict[str, dict]:
     found = {}
+    bundled = config.bundled_bin_dir()
     for name in JS_RUNTIMES:
-        path = shutil.which(name)
+        path = None
+        if bundled:
+            for candidate in (bundled / name, bundled / f"{name}.exe"):
+                if candidate.exists():
+                    path = str(candidate)
+                    break
+        path = path or shutil.which(name)
         if path:
             found[name] = {"path": path}
     return found
@@ -129,8 +136,11 @@ def available_js_runtimes() -> dict[str, dict]:
 
 def _base_opts() -> dict:
     runtimes = available_js_runtimes()
+    bundled = config.bundled_bin_dir()
     opts: dict = {
         "logger": _Silent(),
+        # 데스크톱 앱은 ffmpeg을 함께 묶어 배포한다. PATH에 없어도 찾게 알려준다.
+        **({"ffmpeg_location": str(bundled)} if bundled else {}),
         # 찾은 게 없으면 yt-dlp 기본값(deno)에 맡긴다
         **({"js_runtimes": runtimes} if runtimes else {}),
         "noplaylist": True,
