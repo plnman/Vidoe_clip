@@ -142,18 +142,52 @@ def picker_available() -> bool:
     return _window is not None
 
 
+def _first(chosen) -> str:
+    if not chosen:
+        return ""
+    return str(chosen[0] if isinstance(chosen, (list, tuple)) else chosen)
+
+
 def pick_video_file() -> str:
     """OS 파일 선택 창을 열고 고른 경로를 돌려준다. 취소하면 빈 문자열."""
     if _window is None:
         return ""
     import webview
 
-    chosen = _window.create_file_dialog(
-        webview.OPEN_DIALOG, allow_multiple=False, file_types=_FILE_TYPES
+    return _first(
+        _window.create_file_dialog(
+            webview.FileDialog.OPEN, allow_multiple=False, file_types=_FILE_TYPES
+        )
     )
-    if not chosen:
+
+
+def pick_save_path(filename: str) -> str:
+    """'다른 이름으로 저장' 창을 열고 저장할 경로를 돌려준다. 취소하면 빈 문자열."""
+    if _window is None:
         return ""
-    return str(chosen[0] if isinstance(chosen, (list, tuple)) else chosen)
+    import webview
+
+    return _first(
+        _window.create_file_dialog(webview.FileDialog.SAVE, save_filename=filename)
+    )
+
+
+def reveal(path: Path) -> bool:
+    """탐색기(파인더)에서 그 파일이 있는 폴더를 열고 파일을 선택해 준다."""
+    import subprocess
+
+    path = Path(path)
+    try:
+        if sys.platform == "win32":
+            # explorer는 성공해도 0이 아닌 값을 돌려줄 때가 있어 반환값을 보지 않는다
+            subprocess.Popen(["explorer", "/select,", str(path)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path.parent)])
+        return True
+    except OSError:
+        return False
 
 
 def open_window(url: str) -> bool:
@@ -170,6 +204,10 @@ def open_window(url: str) -> bool:
         return False
 
     try:
+        # 기본값이 False라 WebView2가 다운로드를 그냥 취소한다. 그러면 화면의
+        # 'PC에 저장'을 눌러도 아무 일이 없다. 앱에서는 저장 대화상자로 받지만,
+        # 다른 경로로 내려받을 일이 생겨도 막히지 않도록 열어둔다.
+        webview.settings["ALLOW_DOWNLOADS"] = True
         _window = webview.create_window(APP_NAME, url, width=1100, height=880, min_size=(720, 600))
         webview.start()
         return True

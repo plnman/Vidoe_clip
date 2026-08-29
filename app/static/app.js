@@ -4,7 +4,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   project: null, cards: new Map(), poll: null, resultCuts: [], resultUrl: null, resultMedia: null, password: null,
   // 앱 창이면 OS 파일 선택 창을 쓸 수 있다. 브라우저면 파일을 올려야 한다.
-  filePicker: false,
+  filePicker: false, savedPath: null,
   // 편집은 즉시 화면에 반영하고 서버에는 조금 뒤에 보낸다. 그 사이에 도착한
   // 폴링 응답이 방금 한 편집을 덮어쓰지 않도록 순번으로 비교한다.
   editSeq: 0, syncedSeq: 0,
@@ -736,6 +736,22 @@ function buildPreview(result, url) {
   return { element: media, media };
 }
 
+async function saveResult() {
+  $('saveBtn').disabled = true;
+  notice($('saveNotice'), '');
+  try {
+    const done = await api(`/api/projects/${state.project.id}/save`, { method: 'POST' });
+    if (!done.saved) return;  // 저장 창에서 취소한 것 — 알릴 것 없다
+    state.savedPath = done.path;
+    notice($('saveNotice'), `저장했습니다 — ${done.path}`, 'warn');
+    show($('revealBtn'), true);
+  } catch (err) {
+    notice($('saveNotice'), err.message);
+  } finally {
+    $('saveBtn').disabled = false;
+  }
+}
+
 function showResult(project) {
   const result = project.result;
   const url = `/api/projects/${project.id}/result?v=${encodeURIComponent(result.size)}`;
@@ -743,6 +759,10 @@ function showResult(project) {
   // 폴링 때마다 다시 만들면 재생이 끊긴다. 결과가 바뀔 때만 새로 그린다.
   if (state.resultUrl !== url) {
     state.resultUrl = url;
+    // 새로 만든 결과물이다. 앞서 저장한 자리를 가리키고 있으면 안 된다.
+    state.savedPath = null;
+    show($('revealBtn'), false);
+    notice($('saveNotice'), '');
     const preview = buildPreview(result, url);
     const box = $('resultPreview');
     box.innerHTML = '';
@@ -750,6 +770,9 @@ function showResult(project) {
     state.resultMedia = preview.media;
   }
 
+  // 앱 창에서는 브라우저 다운로드가 막혀 있다(WebView2). 저장 창을 직접 띄운다.
+  show($('downloadLink'), !state.filePicker);
+  show($('saveBtn'), state.filePicker);
   $('downloadLink').href = `/api/projects/${project.id}/download`;
   $('downloadLink').setAttribute('download', result.name);
   $('resultInfo').textContent = `${result.name} · ${fmtSize(result.size)}`;
@@ -866,6 +889,15 @@ async function init() {
   $('whole').addEventListener('change', reparse);
   $('prepareBtn').addEventListener('click', () => prepare(false));
   $('renderBtn').addEventListener('click', render);
+  $('saveBtn').addEventListener('click', saveResult);
+  $('revealBtn').addEventListener('click', async () => {
+    if (!state.savedPath) return;
+    try {
+      await api('/api/reveal', { method: 'POST', body: { path: state.savedPath } });
+    } catch (err) {
+      notice($('saveNotice'), err.message);
+    }
+  });
   $('backToEditBtn').addEventListener('click', () => {
     $('editCard').scrollIntoView({ behavior: 'smooth' });
   });

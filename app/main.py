@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import secrets
+import shutil
 import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -392,6 +393,60 @@ def download(project_id: str) -> FileResponse:
     if not project.result or not project.result.exists():
         raise HTTPException(status_code=404, detail="아직 결과물이 없습니다")
     return FileResponse(project.result, filename=project.result_name)
+
+
+def _finished_result(project_id: str) -> tuple:
+    project = store.get(project_id)
+    if not project.result or not project.result.exists():
+        raise HTTPException(status_code=404, detail="아직 결과물이 없습니다")
+    return project, project.result
+
+
+@app.post(
+    "/api/projects/{project_id}/save",
+    dependencies=[Depends(require_auth), Depends(require_loopback)],
+)
+def save_result(project_id: str) -> dict:
+    """앱 창에서 '다른 이름으로 저장' 창을 띄우고 그 자리로 결과물을 복사한다.
+
+    브라우저 다운로드로 받지 않는 이유가 둘이다. 파일은 이미 이 PC에 있으니 굳이
+    HTTP로 자기 자신에게 내려받을 이유가 없고, 앱 창(WebView2)은 기본적으로
+    다운로드를 막아버려서 눌러도 아무 일이 없다.
+    """
+    from . import desktop
+
+    project, source = _finished_result(project_id)
+    if not desktop.picker_available():
+        raise HTTPException(status_code=409, detail="앱 창에서만 쓸 수 있습니다")
+
+    target = desktop.pick_save_path(project.result_name)
+    if not target:
+        return {"saved": False, "path": ""}
+
+    destination = Path(target)
+    # 저장 창에서 확장자를 지우고 저장하는 경우가 흔하다. 그대로 두면 열리지 않는다.
+    if not destination.suffix:
+        destination = destination.with_suffix(Path(project.result_name).suffix)
+    try:
+        shutil.copy2(source, destination)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"저장하지 못했습니다: {exc}") from exc
+    return {"saved": True, "path": str(destination)}
+
+
+class RevealBody(BaseModel):
+    path: str = ""
+
+
+@app.post("/api/reveal", dependencies=[Depends(require_auth), Depends(require_loopback)])
+def reveal(body: RevealBody) -> dict:
+    """저장한 파일이 있는 폴더를 탐색기로 열어준다."""
+    from . import desktop
+
+    path = Path((body.path or "").strip())
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="그 경로에 파일이 없습니다")
+    return {"opened": desktop.reveal(path)}
 
 
 @app.exception_handler(ProjectError)

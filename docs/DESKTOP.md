@@ -357,7 +357,7 @@ yt-dlp는 `--collect-all yt_dlp` 또는 `hiddenimports`에 추출기를 명시�
 - [x] 두 번 실행해도 포트 충돌이 없다
 - [x] 작업 파일이 사용자 폴더에 쌓이고, 비울 수 있다
 - [x] 설치 파일 하나로 설치·실행된다 (79MB)
-- [x] `pytest` 전부 통과 (147개)
+- [x] `pytest` 전부 통과 (155개)
 - [ ] **Python·ffmpeg이 한 번도 깔린 적 없는 다른 PC**에서 확인
       — 빌드한 PC에서는 PATH를 비워 확인했지만, 진짜 깨끗한 기기에서 한 번 더 볼 것
 - [ ] 맥에서 실제 유튜브 영상으로 완주 (맥이 필요하다)
@@ -374,6 +374,7 @@ yt-dlp는 `--collect-all yt_dlp` 또는 `hiddenimports`에 추출기를 명시�
 | ★ quickjs를 넣었는데 안 잡힘 | 실행 파일 이름은 `qjs`다 (2.4) |
 | ★ 한글 경로에서 `UnicodeDecodeError` | ffmpeg 출력을 UTF-8로 읽을 것 (`media._TEXT`) |
 | ★ **설치한 앱을 눌러도 아무 일이 없음** | 창 모드 앱을 콘솔 없이 실행하면 `sys.stdout`이 None이고, uvicorn이 `sys.stdout.isatty()`에서 죽는다. `desktop.ensure_streams()`가 먼저 로그 파일로 바꿔 끼운다 |
+| ★ **'PC에 저장'을 눌러도 아무 일이 없음** | pywebview의 `ALLOW_DOWNLOADS`가 기본 False라 WebView2가 다운로드를 취소한다. 앱에서는 `create_file_dialog(FileDialog.SAVE)`로 저장 창을 띄우고 직접 복사한다 |
 | 화면이 404 | `app/static`이 안 들어감. spec의 `datas` 확인 |
 | `No module named yt_dlp.extractor.…` | 동적 import 누락. `collect_all("yt_dlp")` |
 | 실행은 되는데 다운로드만 실패 | `bin/ffmpeg` 실행 권한. 맥/리눅스는 `chmod +x` |
