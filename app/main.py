@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, downloader, media, segments as seg, updater
+from . import config, downloader, media, projects, segments as seg, updater
 from .projects import ProjectError, store
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -134,6 +134,7 @@ class UrlBody(BaseModel):
 class ParseBody(BaseModel):
     text: str = ""
     duration: float | None = None
+    pad: float | None = None
 
 
 class SegmentsBody(BaseModel):
@@ -189,7 +190,18 @@ def clear_work() -> dict:
 
 @app.post("/api/parse", dependencies=[Depends(require_auth)])
 def parse(body: ParseBody) -> dict:
-    return seg.parse_segments(body.text, body.duration).to_dict()
+    result = seg.parse_segments(body.text, body.duration)
+    parsed = result.to_dict()
+    # 실제로 받아야 할 길이. 여유분이 붙고 붙어 있는 구간끼리 묶이므로 구간 합계보다 크다.
+    # 이게 영상 길이에 가까워지면 통째로 받는 편이 빠르다고 화면이 알려준다.
+    if body.duration:
+        needs = projects.merge_needs(
+            ((s.start, s.end or s.start, i) for i, s in enumerate(result.segments, 1)),
+            body.pad if body.pad is not None else config.DEFAULT_PAD,
+            body.duration,
+        )
+        parsed["source_span"] = round(sum(need.length for need in needs), 1)
+    return parsed
 
 
 @app.post("/api/projects", dependencies=[Depends(require_auth)])

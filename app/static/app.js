@@ -242,15 +242,26 @@ const reparse = debounce(async () => {
   issues.innerHTML = '';
   if (!text.trim()) { show(box, false); return; }
 
+  const duration = state.project ? state.project.video.duration : null;
   const result = await api('/api/parse', {
     method: 'POST',
-    body: { text, duration: state.project ? state.project.video.duration : null },
+    body: { text, duration, pad: Number($('pad').value) },
   });
 
   box.innerHTML =
     `<span>구간 <b>${result.segments.length}개</b></span>` +
-    `<span>합계 <b>${fmtDuration(result.total)}</b></span>`;
+    `<span>합계 <b>${fmtDuration(result.total)}</b></span>` +
+    (result.source_span
+      ? `<span>받을 양 <b>${fmtDuration(result.source_span)}</b></span>`
+      : '');
   show(box, true);
+  adviseWholeDownload({
+    source: state.project ? state.project.source : 'youtube',
+    options: { whole: $('whole').checked },
+    task: { status: 'idle' },
+    video: { duration },
+    source_span: result.source_span || 0,
+  });
 
   for (const warning of result.warnings) {
     const el = document.createElement('div');
@@ -365,6 +376,8 @@ function applyProject(project, seqAtRequest = state.editSeq) {
     notice($('renderError'), task.status === 'error' ? task.error : '');
   }
 
+  adviseWholeDownload(project);
+
   const ready = project.cuts.some((cut) => cut.ready);
   show($('editCard'), ready);
   show($('renderCard'), ready);
@@ -373,6 +386,39 @@ function applyProject(project, seqAtRequest = state.editSeq) {
   if (project.result) {
     showResult(project);
   }
+}
+
+// 구간 다운로드는 정확한 컷을 위해 재인코딩을 한다 — 느리다. 받을 양이 영상의 절반을
+// 넘어가면 전체를 통째로 받는 편이 실제로 더 빠르다(그쪽은 재인코딩이 없다).
+const WHOLE_IS_FASTER_ABOVE = 0.5;
+
+function adviseWholeDownload(project) {
+  const box = $('wholeAdvice');
+  const span = project.source_span || 0;
+  const duration = project.video.duration || 0;
+  const busy = project.task.status === 'running';
+
+  if (project.source === 'file' || project.options.whole || busy || !duration || !span) {
+    show(box, false);
+    return;
+  }
+  const share = span / duration;
+  if (share < WHOLE_IS_FASTER_ABOVE) { show(box, false); return; }
+
+  box.innerHTML =
+    `받아야 할 양이 영상의 <b>${Math.round(share * 100)}%</b>입니다. ` +
+    `구간별로 받으면 컷을 정확히 맞추려고 <b>구간마다 재인코딩</b>을 하기 때문에 느립니다. ` +
+    `이만큼이면 <b>전체 영상 받기</b>가 더 빠르고, 그다음부터는 어디를 고쳐도 다시 받지 않습니다. `;
+  const button = document.createElement('button');
+  button.className = 'tiny';
+  button.textContent = '전체 영상 받기로 바꾸기';
+  button.onclick = () => {
+    $('whole').checked = true;
+    show(box, false);
+    $('prepareBtn').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+  box.appendChild(button);
+  show(box, true);
 }
 
 function renderCuts(project) {
@@ -815,6 +861,9 @@ async function init() {
   $('loadBtn').addEventListener('click', loadVideo);
   $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadVideo(); });
   $('segText').addEventListener('input', reparse);
+  // 여유분과 '전체 영상 받기'가 바뀌면 받을 양도 달라진다
+  $('pad').addEventListener('input', reparse);
+  $('whole').addEventListener('change', reparse);
   $('prepareBtn').addEventListener('click', () => prepare(false));
   $('renderBtn').addEventListener('click', render);
   $('backToEditBtn').addEventListener('click', () => {

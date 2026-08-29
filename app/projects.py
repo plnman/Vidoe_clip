@@ -101,6 +101,52 @@ class Cut:
 
 
 @dataclass
+class Need:
+    """한 번에 받을 범위. 여유분이 붙어 있고, 붙어 있는 구간들은 묶여 있다.
+
+    `cuts`는 이 범위에 들어가는 **화면에 보이는 구간 번호**(1부터)다.
+    화면이 "3:05~7:15 받는 중"만 보여주면 사용자가 넣지도 않은 시각이라 당황한다.
+    어느 구간을 받는 중인지 같이 말해줘야 한다.
+    """
+
+    start: float
+    end: float
+    cuts: list[int] = field(default_factory=list)
+
+    @property
+    def length(self) -> float:
+        return max(0.0, self.end - self.start)
+
+    def label(self) -> str:
+        if not self.cuts:
+            return f"{format_timecode(self.start)}~{format_timecode(self.end)}"
+        if len(self.cuts) == 1:
+            which = f"구간 {self.cuts[0]}"
+        else:
+            which = f"구간 {self.cuts[0]}–{self.cuts[-1]}"
+        return f"{which} · 여유분 포함 {format_timecode(self.start)}~{format_timecode(self.end)}"
+
+
+def merge_needs(spans, pad: float, duration: float) -> list[Need]:
+    """`(시작, 끝, 번호)` 들을 여유분 붙여 넓히고, 닿는 것끼리 묶는다.
+
+    묶는 이유는 같은 데이터를 두 번 받지 않기 위해서다. 이 계산이 한 곳에만 있어야
+    화면에 미리 보여주는 예상량과 실제로 받는 양이 어긋나지 않는다.
+    """
+    widened = sorted(
+        (max(0.0, start - pad), min(duration, end + pad), number) for start, end, number in spans
+    )
+    merged: list[Need] = []
+    for start, end, number in widened:
+        if merged and start <= merged[-1].end + 1.0:
+            merged[-1].end = max(merged[-1].end, end)
+            merged[-1].cuts.append(number)
+        else:
+            merged.append(Need(start=start, end=end, cuts=[number]))
+    return [need for need in merged if need.length > EPS]
+
+
+@dataclass
 class Task:
     kind: str = ""
     status: str = "idle"  # idle | running | done | error | cancelled
@@ -157,6 +203,23 @@ class Project:
     def pending_cuts(self) -> list[Cut]:
         return [c for c in self.cuts if c.enabled and self.clip_for(c) is None]
 
+    def needed_ranges(self) -> list[Need]:
+        """아직 없는 구간들을 여유분 포함해 묶는다.
+
+        여유분 때문에 앞뒤로 넓어지고, 그렇게 넓어진 것끼리 닿으면 한 번에 받는다.
+        같은 데이터를 두 번 받지 않기 위해서다. 그래서 화면에 뜨는 범위는
+        사용자가 적어 넣은 시각과 다를 수밖에 없다 — 어느 구간인지 함께 들고 다닌다.
+        """
+        return merge_needs(
+            (
+                (cut.start, cut.end, index)
+                for index, cut in enumerate(self.cuts, 1)
+                if cut.enabled and self.clip_for(cut) is None
+            ),
+            self.pad,
+            self.info.duration,
+        )
+
     def enabled_cuts(self) -> list[Cut]:
         return [c for c in self.cuts if c.enabled and c.duration > EPS]
 
@@ -181,6 +244,9 @@ class Project:
             "task": self.task.to_dict(),
             "total_duration": round(sum(c.duration for c in enabled), 3),
             "pending": len(self.pending_cuts()),
+            # 실제로 받아야 할 길이(여유분·병합 반영). 영상 길이에 견줘 이게 커지면
+            # 구간별로 받는 것이 손해다 — 구간 다운로드는 정확한 컷을 위해 재인코딩을 한다.
+            "source_span": round(sum(need.length for need in self.needed_ranges()), 1),
             "result": (
                 {
                     "name": self.result_name,
@@ -407,21 +473,6 @@ class ProjectStore:
         self._pool.submit(self._render, project, fmt, quality, separate)
 
     # --- 실행부 -----------------------------------------------------------
-    def _needed_ranges(self, project: Project) -> list[tuple[float, float]]:
-        """아직 없는 구간들을 여유분 포함해 묶는다(겹치면 한 번에 받도록)."""
-        duration = project.info.duration
-        pad = project.pad
-        wanted = sorted(
-            (max(0.0, c.start - pad), min(duration, c.end + pad)) for c in project.pending_cuts()
-        )
-        merged: list[list[float]] = []
-        for start, end in wanted:
-            if merged and start <= merged[-1][1] + 1.0:
-                merged[-1][1] = max(merged[-1][1], end)
-            else:
-                merged.append([start, end])
-        return [(a, b) for a, b in merged if b - a > EPS]
-
     def _prepare(self, project: Project) -> None:
         try:
             if project.source == "file":
@@ -434,27 +485,26 @@ class ProjectStore:
                     c.offset <= COVER_TOL and c.end >= project.info.duration - COVER_TOL
                     for c in project.clips.values()
                 )
-                ranges: list[tuple[float, float] | None] = [] if have_full else [None]
+                ranges: list[Need | None] = [] if have_full else [None]
             else:
-                ranges = list(self._needed_ranges(project))
+                ranges = list(project.needed_ranges())
 
             if not ranges:
                 self._finish(project, "done", "이미 모두 준비돼 있습니다")
                 return
 
-            weights = [(1.0 if r is None else r[1] - r[0]) for r in ranges]
+            weights = [(1.0 if r is None else r.length) for r in ranges]
             total_weight = sum(weights) or 1.0
             done_weight = 0.0
 
-            for index, rng in enumerate(ranges):
+            for index, need in enumerate(ranges):
                 if project.cancel.is_set():
                     raise downloader.Cancelled("취소되었습니다")
-                start, end = (None, None) if rng is None else rng
+                start, end = (None, None) if need is None else (need.start, need.end)
                 label = (
                     "전체 영상 받는 중"
-                    if rng is None
-                    else f"{format_timecode(start)}~{format_timecode(end)} 받는 중 "
-                    f"({index + 1}/{len(ranges)})"
+                    if need is None
+                    else f"{need.label()} 받는 중 ({index + 1}/{len(ranges)})"
                 )
 
                 def on_progress(fraction: float, base=done_weight, weight=weights[index]) -> None:
@@ -479,8 +529,8 @@ class ProjectStore:
                 clip = Clip(
                     id=_new_id("m_"),
                     path=path,
-                    offset=0.0 if rng is None else float(start),
-                    length=probed.duration if rng is not None else max(probed.duration, project.info.duration),
+                    offset=0.0 if need is None else float(start),
+                    length=probed.duration if need is not None else max(probed.duration, project.info.duration),
                 )
                 poster = media.make_thumbnail(path, path.with_suffix(".jpg"), at=min(1.0, probed.duration / 2))
                 clip.poster = poster
