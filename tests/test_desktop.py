@@ -181,3 +181,44 @@ def test_open_window_falls_back_when_the_window_cannot_open(monkeypatch):
     monkeypatch.setitem(sys.modules, "webview", FakeWebview())
     assert desktop.open_window("http://127.0.0.1:1") is False
     assert desktop.picker_available() is False
+
+
+def test_context_menu_patch_survives_a_missing_backend(monkeypatch):
+    """pywebview가 바뀌어 그 자리가 없어져도 앱이 죽으면 안 된다."""
+    from app import desktop
+
+    monkeypatch.setitem(sys.modules, "webview.platforms", None)
+    desktop.enable_context_menu()  # 예외가 나면 실패
+
+
+def test_context_menu_is_turned_on_after_the_window_is_ready(monkeypatch):
+    """WebView2 기본 메뉴는 디버그 모드에서만 켜진다. 그것만 따로 켠다."""
+    import types
+
+    from app import desktop
+
+    calls = []
+
+    class FakeEdgeChrome:
+        def on_webview_ready(self, sender, args):
+            calls.append("original")
+
+    module = types.ModuleType("webview.platforms.edgechromium")
+    module.EdgeChrome = FakeEdgeChrome
+    package = types.ModuleType("webview.platforms")
+    package.edgechromium = module
+    monkeypatch.setitem(sys.modules, "webview.platforms", package)
+    monkeypatch.setitem(sys.modules, "webview.platforms.edgechromium", module)
+
+    desktop.enable_context_menu()
+
+    class FakeSettings:
+        AreDefaultContextMenusEnabled = False
+
+    class FakeSender:
+        class CoreWebView2:
+            Settings = FakeSettings()
+
+    FakeEdgeChrome().on_webview_ready(FakeSender(), None)
+    assert calls == ["original"], "원래 하던 일도 그대로 해야 한다"
+    assert FakeSender.CoreWebView2.Settings.AreDefaultContextMenusEnabled is True

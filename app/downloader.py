@@ -334,6 +334,16 @@ def fetch_range(
         "outtmpl": {"default": str(dest_dir / f"{name}.%(ext)s")},
         "concurrent_fragment_downloads": 8,
         "overwrites": True,
+        # 임시 파일 자리를 반드시 알려준다.
+        #
+        # 안 주면 yt-dlp가 현재 작업 폴더에 만들려 든다. 설치한 앱은 Program Files에서
+        # 실행되는데 거기는 쓸 수 없다. 그런데 윈도우에서 os.access(W_OK)는 ACL을 보지
+        # 못하고 '쓸 수 있다'고 답하기 때문에, tempfile이 실패를 만 번 되풀이하며
+        # CPU만 태운다. 파일도 안 생기고 오류도 안 나서 그냥 멈춘 것처럼 보인다.
+        "paths": {"home": str(dest_dir), "temp": str(dest_dir)},
+        # 포맷을 미리 시험 삼아 받아보지 않는다. 후보마다 조금씩 내려받아 확인하는
+        # 동작인데, 느리기만 하고 실패하면 어차피 오류로 알려준다.
+        "check_formats": False,
     }
 
     if start is not None and end is not None:

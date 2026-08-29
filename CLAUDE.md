@@ -15,7 +15,7 @@
 - 내 영상 파일 소스 — 같은 영상으로 19.0초 완성본
 - 묶은 앱 — ffmpeg·node가 **전혀 없는 PATH**에서 위 전 과정 완주
 - quickjs만으로 유튜브 챌린지 통과(node/deno 없이)
-- 테스트 162개
+- 테스트 166개
 
 무언가 안 될 때 첫 명령은 여전히 이것이다. 어느 단계에서 막혔는지 한 줄로 나온다:
 
@@ -90,6 +90,14 @@
   지독해서 윈도우 경로가 늘 깨진다. 작업 폴더에서 ffmpeg을 실행하고(cwd) 상대 파일명만 쓴다.
   제목 글자도 `textfile=`로 넘기고 `expansion=none`을 준다 — 안 그러면 `%`와 `\`를
   drawtext가 확장하려 든다.
+- **쓸 수 없는 폴더에서 돌면 조용히 멈춘다.** 설치한 앱의 시작 폴더는 Program Files다.
+  yt-dlp는 임시 파일을 현재 폴더에 만들려 드는데, 윈도우의 `os.access(W_OK)`가 ACL을
+  못 봐서 '쓸 수 있다'고 답한다 → tempfile이 실패를 되풀이하며 CPU만 태운다.
+  파일도 안 생기고 오류도 안 난다. `downloader`가 `paths`를 반드시 넘기고,
+  `desktop.use_writable_cwd()`가 작업 폴더로 옮긴다.
+- **앱 창은 오른쪽 클릭 메뉴가 없다.** pywebview가 WebView2의 기본 메뉴를 디버그
+  모드에서만 켜기 때문. 붙여넣기가 Ctrl+V로만 되어 불편하다.
+  `desktop.enable_context_menu()`가 그 설정 하나만 따로 켠다.
 - **앱 창은 브라우저 다운로드를 막는다.** pywebview의 `ALLOW_DOWNLOADS`가 기본 False라
   WebView2가 취소해버린다 — `PC에 저장`을 눌러도 아무 일이 없었다. 앱에서는
   `POST /api/projects/{id}/save`로 OS 저장 창을 띄우고 그 자리로 복사한다.
@@ -107,7 +115,7 @@
 ./run.sh --lan           # 같은 공유기의 다른 기기에서도
 CLIPPER_PASSWORD=x ./run.sh --share   # 공개 https 주소 (cloudflared 필요)
 
-pytest                   # 162개. 유튜브 접속 없이 전부 실제로 돌린다
+pytest                   # 166개. 유튜브 접속 없이 전부 실제로 돌린다
 python -m app.desktop    # 데스크톱 형태로 (pywebview 필요, --browser로 대체 가능)
 ```
 

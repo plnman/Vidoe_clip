@@ -307,3 +307,50 @@ def test_bundled_runtime_wins_over_path(monkeypatch, tmp_path):
     monkeypatch.setattr(downloader.config, "bundled_bin_dir", lambda: bundled)
     monkeypatch.setattr(downloader.shutil, "which", lambda name: "/usr/bin/qjs")
     assert downloader.available_js_runtimes()["quickjs"]["path"] == str(bundled / "qjs.exe")
+
+
+# --- 쓸 수 없는 폴더에서 실행될 때 -------------------------------------------
+
+def test_temp_paths_are_pinned_to_the_destination(tmp_path, monkeypatch):
+    """yt-dlp에 임시 파일 자리를 반드시 알려줘야 한다.
+
+    안 알려주면 현재 작업 폴더에 만들려 드는데, 설치한 앱은 Program Files에서
+    실행된다. 거기는 쓸 수 없고, 윈도우의 os.access는 그걸 알려주지 못해서
+    tempfile이 실패를 되풀이하며 조용히 멈춘다. 실제로 그렇게 멈췄다.
+    """
+    captured = {}
+
+    class FakeYDL:
+        def __init__(self, opts):
+            captured.update(opts)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def download(self, urls):
+            (tmp_path / "f_x.mp4").write_bytes(b"0")
+
+    monkeypatch.setattr(downloader.yt_dlp, "YoutubeDL", FakeYDL)
+    downloader.fetch_range("https://youtu.be/dQw4w9WgXcQ", tmp_path, "f_x", start=1.0, end=2.0)
+
+    assert captured["paths"] == {"home": str(tmp_path), "temp": str(tmp_path)}
+    # 포맷을 미리 받아보며 시험하지 않는다 — 느리기만 하다
+    assert captured["check_formats"] is False
+
+
+def test_writable_cwd_moves_out_of_a_read_only_folder(tmp_path, monkeypatch):
+    import os
+
+    from app import config, desktop
+
+    work = tmp_path / "work"
+    monkeypatch.setattr(config, "WORK_DIR", work)
+    before = os.getcwd()
+    try:
+        desktop.use_writable_cwd()
+        assert os.path.realpath(os.getcwd()) == os.path.realpath(work)
+    finally:
+        os.chdir(before)

@@ -60,6 +60,28 @@ def ensure_streams() -> Path | None:
     return path
 
 
+def use_writable_cwd() -> None:
+    """쓸 수 있는 폴더에서 돌게 한다.
+
+    설치한 앱은 시작 폴더가 `C:\\Program Files\\YoutubeClipper`다. 거기는 쓸 수 없는데,
+    현재 폴더에 임시 파일을 만들려는 라이브러리가 있다(yt-dlp가 그랬다). 더 나쁜 것은
+    윈도우에서 `os.access(W_OK)`가 ACL을 보지 못해 '쓸 수 있다'고 답한다는 점이다.
+    그래서 실패가 예외로 올라오지 않고 재시도만 반복하며 조용히 멈춘다.
+
+    작업 폴더로 옮겨두면 그런 코드가 있어도 문제가 되지 않는다.
+    """
+    import os
+
+    from . import config
+
+    try:
+        target = config.WORK_DIR
+        target.mkdir(parents=True, exist_ok=True)
+        os.chdir(target)
+    except OSError as exc:
+        print(f"작업 폴더로 옮기지 못했습니다: {exc}", file=sys.stderr, flush=True)
+
+
 def alert(message: str) -> None:
     """창 모드에서는 콘솔에 찍어봐야 아무도 못 본다. 보이는 곳에 띄운다."""
     print(message, file=sys.stderr, flush=True)
@@ -190,6 +212,36 @@ def reveal(path: Path) -> bool:
         return False
 
 
+def enable_context_menu() -> None:
+    """오른쪽 클릭 메뉴(붙여넣기·복사)를 켠다.
+
+    pywebview는 WebView2의 기본 메뉴를 **디버그 모드에서만** 켠다. 그래서 앱 창에서는
+    링크 칸에 오른쪽 클릭 붙여넣기가 안 되고 Ctrl+V만 됐다. 구간 목록을 붙여넣는 것이
+    이 앱의 주된 사용법이라 그냥 두면 매번 불편하다.
+
+    디버그 모드를 켜면 같이 켜지지만 개발자 도구와 상태 표시줄까지 따라온다.
+    필요한 설정 하나만 켜기 위해 창이 준비되는 자리에 끼어든다. pywebview가 바뀌어
+    이 자리가 없어져도 앱이 죽지는 않게 감싸 둔다.
+    """
+    try:
+        from webview.platforms import edgechromium
+    except Exception:
+        return  # 윈도우가 아니거나 백엔드가 다르면 할 일이 없다
+
+    original = getattr(edgechromium.EdgeChrome, "on_webview_ready", None)
+    if original is None:
+        return
+
+    def with_context_menu(self, sender, args):
+        original(self, sender, args)
+        try:
+            sender.CoreWebView2.Settings.AreDefaultContextMenusEnabled = True
+        except Exception as exc:
+            print(f"오른쪽 클릭 메뉴를 켜지 못했습니다: {exc}", file=sys.stderr, flush=True)
+
+    edgechromium.EdgeChrome.on_webview_ready = with_context_menu
+
+
 def open_window(url: str) -> bool:
     """네이티브 창으로 연다. 못 열면 False를 돌려줘 브라우저로 넘어가게 한다.
 
@@ -208,6 +260,7 @@ def open_window(url: str) -> bool:
         # 'PC에 저장'을 눌러도 아무 일이 없다. 앱에서는 저장 대화상자로 받지만,
         # 다른 경로로 내려받을 일이 생겨도 막히지 않도록 열어둔다.
         webview.settings["ALLOW_DOWNLOADS"] = True
+        enable_context_menu()
         _window = webview.create_window(APP_NAME, url, width=1100, height=880, min_size=(720, 600))
         webview.start()
         return True
@@ -233,6 +286,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 무엇보다 먼저. 이게 없으면 콘솔 없이 실행됐을 때 uvicorn이 로깅에서 죽는다.
     logfile = ensure_streams()
+    use_writable_cwd()
 
     port = free_port(args.port)
     url = f"http://127.0.0.1:{port}"
