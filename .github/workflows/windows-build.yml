@@ -3,7 +3,7 @@
 # 쓰는 법 두 가지
 #   1) 저장소 Actions 탭 → "윈도우 설치 파일" → Run workflow 를 누른다.
 #      끝나면 그 실행 페이지 아래 Artifacts 에서 설치 파일을 내려받는다.
-#   2) 태그를 밀면(git tag v1.1.0 && git push origin v1.1.0) Releases 에 올라간다.
+#   2) 돌릴 때마다 Releases 에도 올라간다. 거기서는 exe 를 바로 내려받을 수 있다.
 #
 # 내 PC에 파이썬·Inno Setup이 없어도 되고, 빌드하는 걸 잊어 옛 버전을 쓰는 일도 없다.
 
@@ -54,9 +54,17 @@ jobs:
           path: dist/installer/YoutubeClipper-setup.exe
           if-no-files-found: error
 
-      - name: Release 에 붙이기 (태그를 밀었을 때만)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Artifacts 는 zip으로 감싸이고 로그인해야 받을 수 있다. Release 로 올려두면
+      # 누구나 exe 를 바로 내려받는다. 같은 버전을 다시 돌리면 그 Release 를 갱신한다.
+      - name: Release 로 올리기
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: v${{ steps.ver.outputs.version }}
           files: dist/installer/YoutubeClipper-setup.exe
-          generate_release_notes: true
+          body: |
+            윈도우 설치 파일입니다. 받아서 실행하면 됩니다.
+
+            설치 뒤 앱의 `관리`에서 버전이 **${{ steps.ver.outputs.version }}** 인지 확인하세요.
+
+            빌드한 커밋: ${{ github.sha }}
