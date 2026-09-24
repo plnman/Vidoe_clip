@@ -13,7 +13,7 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
-__version__ = "1.1.2"
+__version__ = "1.1.3"
 
 _ROOT = Path(__file__).resolve().parent.parent
 

@@ -903,19 +903,43 @@ function bindMaintenance(health) {
 
 /* ---------- 초기화 ---------- */
 
+// 무엇으로 인코딩하는지. CPU면 왜 GPU를 못 썼는지까지 보여준다 —
+// "CPU 사용"만 적어두면 손쓸 방법이 없다.
+function showEncoder(hw) {
+  const line = $('encoderStatus');
+  if (hw.encoder) {
+    line.textContent = `${hw.vendor} GPU 사용 (${hw.encoder}) — 빠릅니다`;
+    return;
+  }
+  if (!hw.enabled) {
+    line.textContent = 'CPU 사용 (CLIPPER_HARDWARE=off 로 꺼둠)';
+    return;
+  }
+  line.textContent = 'CPU 사용 — GPU 인코더를 쓰지 못했습니다. 긴 영상은 몇 분 걸립니다';
+  const tried = (hw.attempts || []).filter((a) => !a.ok);
+  if (!tried.length) return;
+  const detail = document.createElement('details');
+  detail.style.marginTop = '4px';
+  const summary = document.createElement('summary');
+  summary.textContent = '시도한 인코더 보기';
+  summary.style.cursor = 'pointer';
+  detail.appendChild(summary);
+  for (const attempt of tried) {
+    const row = document.createElement('p');
+    row.className = 'hint';
+    row.style.margin = '3px 0 0 8px';
+    row.textContent = `${attempt.encoder} — ${attempt.reason}`;
+    detail.appendChild(row);
+  }
+  line.appendChild(detail);
+}
+
 async function init() {
   try {
     const health = await api('/api/health');
     if (!health.ffmpeg) notice($('health'), health.error);
     if (health.app) $('appVersion').textContent = health.app.display;
-    if (health.hardware) {
-      const hw = health.hardware;
-      $('encoderStatus').textContent = hw.encoder
-        ? `${hw.vendor} GPU 사용 (${hw.encoder}) — 빠릅니다`
-        : (hw.enabled
-            ? 'CPU 사용 — GPU 인코더를 찾지 못했습니다. 긴 영상은 몇 분 걸립니다'
-            : 'CPU 사용 (CLIPPER_HARDWARE=off 로 꺼둠)');
-    }
+    if (health.hardware) showEncoder(health.hardware);
     const formatSelect = $('format');
     for (const [value, label] of Object.entries(health.formats || {})) {
       const option = document.createElement('option');

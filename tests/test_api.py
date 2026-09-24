@@ -453,7 +453,8 @@ def test_sweep_keeps_a_folder_that_is_still_fresh(client):
 def test_health_reports_hardware_encoder(client):
     body = client.get("/api/health").json()
     assert "hardware" in body
-    assert set(body["hardware"]) == {"encoder", "vendor", "enabled"}
+    assert set(body["hardware"]) == {"encoder", "vendor", "enabled", "attempts"}
+    assert isinstance(body["hardware"]["attempts"], list)
 
 
 def test_finalizing_phase_is_shown_instead_of_a_frozen_99_percent(client):

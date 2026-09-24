@@ -109,6 +109,8 @@ def _hardware_status() -> dict:
         "encoder": found[0] if found else None,
         "vendor": found[1] if found else None,
         "enabled": config.HARDWARE != "off",
+        # 왜 못 찾았는지까지 알려야 손을 쓸 수 있다
+        "attempts": media.hardware_attempts("libx264"),
     }
 
 

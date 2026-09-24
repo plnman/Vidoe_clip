@@ -246,21 +246,24 @@ def test_hardware_quality_follows_the_quality_step():
 
 def test_detection_skips_encoders_not_in_the_build(monkeypatch):
     monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
     monkeypatch.setattr(media, "_compiled_encoders", lambda: {"libx264"})
     tried = []
-    monkeypatch.setattr(media, "_encoder_works", lambda name: tried.append(name) or False)
+    monkeypatch.setattr(media, "_encoder_works",
+                        lambda name: (tried.append(name), (False, "없음"))[1])
     assert media.detect_hardware_encoder("libx264") is None
     assert tried == [], "빌드에 없는 인코더를 굳이 돌려봤다"
 
 
 def test_detection_tries_candidates_and_caches(monkeypatch):
     monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
     monkeypatch.setattr(media, "_compiled_encoders", lambda: set())
     calls = []
 
     def works(name):
         calls.append(name)
-        return name == "h264_qsv"
+        return (True, "") if name == "h264_qsv" else (False, "이 기계에 없음")
 
     monkeypatch.setattr(media, "_encoder_works", works)
     assert media.detect_hardware_encoder("libx264") == ("h264_qsv", "Intel")
@@ -271,8 +274,9 @@ def test_detection_tries_candidates_and_caches(monkeypatch):
 
 def test_hardware_can_be_turned_off(monkeypatch):
     monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
     monkeypatch.setattr(media.config, "HARDWARE", "off")
-    monkeypatch.setattr(media, "_encoder_works", lambda name: True)
+    monkeypatch.setattr(media, "_encoder_works", lambda name: (True, ""))
     assert media.detect_hardware_encoder("libx264") is None
 
 
@@ -349,3 +353,18 @@ def test_finalizing_fires_only_when_encoding_ends():
         on_phase=phases.append,
     )
     assert phases == ["finalizing"]
+
+
+def test_failed_attempts_are_recorded_with_a_reason(monkeypatch):
+    """CPU로 떨어졌을 때 왜 그랬는지 말할 수 있어야 한다."""
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
+    monkeypatch.setattr(media, "_compiled_encoders", lambda: {"h264_amf"})
+    monkeypatch.setattr(media, "_encoder_works", lambda name: (False, "드라이버 없음"))
+
+    assert media.detect_hardware_encoder("libx264") is None
+    attempts = media.hardware_attempts("libx264")
+    by_name = {a["encoder"]: a for a in attempts}
+    assert by_name["h264_amf"]["reason"] == "드라이버 없음"
+    assert by_name["h264_nvenc"]["reason"] == "이 ffmpeg 빌드에 없습니다"
+    assert not any(a["ok"] for a in attempts)

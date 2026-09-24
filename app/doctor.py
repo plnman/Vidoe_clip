@@ -99,6 +99,7 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
 
     # 3. 영상 인코더 — GPU를 쓰면 몇 배 빠르다
     found = media.detect_hardware_encoder("libx264")
+    tried = [a for a in media.hardware_attempts("libx264") if not a["ok"]]
     report.add(Check(
         name="영상 인코딩",
         ok=True,
@@ -106,8 +107,8 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
         detail=(f"{found[1]} GPU 사용 ({found[0]})" if found
                 else "CPU 사용. 긴 영상은 몇 분 걸립니다"),
         hint="" if found else (
-            "GPU 인코더를 못 찾았습니다. 그래픽 드라이버가 최신인지 확인해 보세요.\n"
-            "     없어도 동작하지만, 18분짜리 결과물이 CPU로는 수 분 걸립니다."
+            "GPU 인코더를 쓰지 못했습니다. 시도한 것과 이유는 아래와 같습니다.\n"
+            + "\n".join(f"     {a['encoder']} — {a['reason'][:160]}" for a in tried)
         ),
     ))
 

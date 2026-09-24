@@ -295,6 +295,8 @@ _HW_CANDIDATES = {
 }
 
 _hw_cache: dict[str, tuple[str, str] | None] = {}
+# 어느 인코더를 시도했고 왜 안 됐는지. "CPU 사용"만 보여주면 손쓸 방법이 없다.
+_hw_attempts: dict[str, list[dict]] = {}
 _encoder_list: set[str] | None = None
 
 
@@ -312,19 +314,27 @@ def _compiled_encoders() -> set[str]:
     return _encoder_list
 
 
-def _encoder_works(name: str) -> bool:
-    """실제로 1초도 안 되는 영상을 인코딩해 본다.
+def _encoder_works(name: str) -> tuple[bool, str]:
+    """실제로 짧은 영상을 인코딩해 본다. (되는지, 안 되면 이유)
 
     `ffmpeg -encoders` 목록에 있다고 되는 게 아니다. 윈도우용 ffmpeg 빌드는
     NVIDIA 카드가 없어도 h264_nvenc를 목록에 넣어두기 때문에, 돌려봐야 안다.
+
+    해상도를 640x360으로 잡는 이유 — 하드웨어 인코더는 너무 작은 화면을 거부하는
+    경우가 있다. 실제 쓰임에 가까운 크기로 시험해야 헛되이 걸러지지 않는다.
     """
     cmd = [FFMPEG, "-v", "error", "-f", "lavfi",
-           "-i", "color=c=black:s=320x240:r=10:d=0.4", "-c:v", name, "-f", "null", "-"]
+           "-i", "color=c=black:s=640x360:r=30:d=1", "-c:v", name, "-f", "null", "-"]
     try:
-        done = subprocess.run(cmd, capture_output=True, timeout=25, **_TEXT)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return done.returncode == 0
+        done = subprocess.run(cmd, capture_output=True, timeout=40, **_TEXT)
+    except subprocess.TimeoutExpired:
+        return False, "시험 인코딩이 40초 안에 끝나지 않았습니다"
+    except OSError as exc:
+        return False, str(exc)
+    if done.returncode == 0:
+        return True, ""
+    reason = " / ".join((done.stderr or "").strip().splitlines()[-3:])
+    return False, reason or f"ffmpeg 종료 코드 {done.returncode}"
 
 
 def detect_hardware_encoder(vcodec: str = "libx264") -> tuple[str, str] | None:
@@ -335,14 +345,30 @@ def detect_hardware_encoder(vcodec: str = "libx264") -> tuple[str, str] | None:
         return _hw_cache[vcodec]
     compiled = _compiled_encoders()
     found = None
+    attempts: list[dict] = []
     for name, vendor in _HW_CANDIDATES.get(vcodec, []):
         if compiled and name not in compiled:
-            continue  # 아예 빌드에 없다. 돌려볼 것도 없음
-        if _encoder_works(name):
+            attempts.append({"encoder": name, "vendor": vendor,
+                             "ok": False, "reason": "이 ffmpeg 빌드에 없습니다"})
+            continue
+        ok, reason = _encoder_works(name)
+        attempts.append({"encoder": name, "vendor": vendor, "ok": ok, "reason": reason})
+        if ok:
             found = (name, vendor)
             break
     _hw_cache[vcodec] = found
+    _hw_attempts[vcodec] = attempts
+    for attempt in attempts:
+        print(f"[encoder] {attempt['encoder']}: "
+              f"{'사용 가능' if attempt['ok'] else '불가 — ' + attempt['reason']}", flush=True)
     return found
+
+
+def hardware_attempts(vcodec: str = "libx264") -> list[dict]:
+    """조사 결과. 아직 조사 전이면 조사부터 한다."""
+    if vcodec not in _hw_attempts:
+        detect_hardware_encoder(vcodec)
+    return _hw_attempts.get(vcodec, [])
 
 
 def _hw_quality_args(name: str, quality: str) -> list[str]:
