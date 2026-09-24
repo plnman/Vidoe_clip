@@ -1,0 +1,62 @@
+# 윈도우 설치 파일을 깃허브가 대신 만든다.
+#
+# 쓰는 법 두 가지
+#   1) 저장소 Actions 탭 → "윈도우 설치 파일" → Run workflow 를 누른다.
+#      끝나면 그 실행 페이지 아래 Artifacts 에서 설치 파일을 내려받는다.
+#   2) 태그를 밀면(git tag v1.1.0 && git push origin v1.1.0) Releases 에 올라간다.
+#
+# 내 PC에 파이썬·Inno Setup이 없어도 되고, 빌드하는 걸 잊어 옛 버전을 쓰는 일도 없다.
+
+name: 윈도우 설치 파일
+
+on:
+  workflow_dispatch:      # 손으로 눌러서 만들기
+  push:
+    tags: ["v*"]          # 태그를 밀면 Release 까지
+
+permissions:
+  contents: write         # Release 에 파일을 올리려면 필요하다
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Inno Setup 준비
+        shell: pwsh
+        run: |
+          # windows-latest 이미지에 보통 들어 있다. 없을 때만 설치한다.
+          if (-not (Get-Command ISCC.exe -ErrorAction SilentlyContinue) -and
+              -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+
+      - name: 빌드
+        shell: pwsh
+        run: .\packaging\build.ps1 -Installer
+
+      - name: 버전 읽기
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (& python .\packaging\stamp.py --print-version).Trim()
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: 설치 파일 올리기
+        uses: actions/upload-artifact@v4
+        with:
+          name: YoutubeClipper-${{ steps.ver.outputs.version }}-setup
+          path: dist/installer/YoutubeClipper-setup.exe
+          if-no-files-found: error
+
+      - name: Release 에 붙이기 (태그를 밀었을 때만)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/installer/YoutubeClipper-setup.exe
+          generate_release_notes: true
