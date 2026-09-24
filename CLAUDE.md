@@ -135,6 +135,15 @@ python tests/browser_smoke.py          # playwright 필요
 
 `CLIPPER_FAKE_SILENT=1`을 주면 진행률을 주지 않는 상황을 재현한다.
 
+## 버전
+
+`app/version.py`의 `__version__`이 유일한 출처다. 빌드하면 `packaging/stamp.py`가
+커밋과 날짜를 `app/_build.py`에 새기고, 설치 프로그램도 같은 값을 받는다.
+화면(`관리`)과 진단 첫 줄에 나온다.
+
+동작을 바꾸면 `__version__`을 올릴 것. 설치된 앱은 소스를 고쳐도 그대로이므로,
+"고쳤는데 왜 그대로지"의 답이 대개 "새 빌드를 안 깔았다"이다.
+
 ## 작업 규칙
 
 - **주석과 문서, 커밋 메시지는 한국어.** 코드 식별자는 영어.

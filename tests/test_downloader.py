@@ -248,7 +248,9 @@ def test_doctor_passes_every_step_on_a_reachable_video(served, tmp_path, monkeyp
 
     assert report.ok, text
     names = [c.name for c in report.checks]
-    assert names[0] == "ffmpeg 설치" and names[-1] == "잘라 이어붙이기"
+    # 맨 앞은 앱 버전 — 새 빌드를 깔았는지부터 확인할 수 있어야 한다
+    assert names[0] == "앱 버전" and names[-1] == "잘라 이어붙이기"
+    assert "ffmpeg 설치" in names
     assert not any(c.skipped for c in report.checks)
     assert "모든 단계 통과" in text
     assert "로컬 시험 영상" in text

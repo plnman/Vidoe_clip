@@ -32,6 +32,10 @@ if (-not $SkipBinaries) {
 
 Write-Host "== 빌드 =="
 Remove-Item -Recurse -Force (Join-Path $root "build"), (Join-Path $root "dist") -ErrorAction SilentlyContinue
+# 어느 빌드인지 앱 안에 새긴다
+& $python (Join-Path $PSScriptRoot "stamp.py")
+$appVersion = (& $python (Join-Path $PSScriptRoot "stamp.py") --print-version).Trim()
+
 & $python -m PyInstaller --noconfirm --clean (Join-Path $PSScriptRoot "clipper.spec")
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller 실패" }
 
@@ -64,7 +68,7 @@ if ($Installer) {
     if (-not $iscc) {
         throw "Inno Setup을 찾지 못했습니다.  winget install JRSoftware.InnoSetup"
     }
-    & $iscc (Join-Path $PSScriptRoot "installer.iss")
+    & $iscc "/DAppVersion=$appVersion" (Join-Path $PSScriptRoot "installer.iss")
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup 실패" }
     Write-Host ("설치 파일: {0}" -f (Join-Path $root "dist\installer"))
 }

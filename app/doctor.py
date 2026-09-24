@@ -15,7 +15,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import config, downloader, media
+from . import config, downloader, media, version as app_version
 from .segments import format_timecode
 
 PROBE_SECONDS = 5.0
@@ -81,6 +81,9 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
     report = Report()
     temp = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="clipper-doctor-"))
     temp.mkdir(parents=True, exist_ok=True)
+
+    # 0. 앱 버전 — 새 빌드를 깔았는지부터 확인할 수 있어야 한다
+    report.add(Check(name="앱 버전", ok=True, advisory=True, detail=app_version.display()))
 
     # 1. ffmpeg
     version = _tool_version("ffmpeg")

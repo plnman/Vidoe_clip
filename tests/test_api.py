@@ -470,3 +470,9 @@ def test_finalizing_phase_is_shown_instead_of_a_frozen_99_percent(client):
     assert live.task.message == "파일 마무리하는 중"
     assert live.task.indeterminate is True
     assert client.get(f"/api/projects/{pid}").json()["task"]["indeterminate"] is True
+
+
+def test_health_reports_the_app_version(client):
+    body = client.get("/api/health").json()
+    assert body["app"]["version"]
+    assert body["app"]["version"] in body["app"]["display"]

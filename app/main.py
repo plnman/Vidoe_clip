@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import config, downloader, media, projects, segments as seg, updater
+from . import version as app_version
 from .projects import ProjectError, store
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -139,6 +140,7 @@ def health(request: Request) -> dict:
         "presets": {k: v["label"] for k, v in config.RENDER_PRESETS.items()},
         "formats": {k: v["label"] for k, v in media.FORMATS.items()},
         "hardware": _hardware_status(),
+        "app": app_version.info(),
         "default_format": media.DEFAULT_FORMAT,
     }
 

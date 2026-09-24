@@ -7,7 +7,10 @@
 
 #define AppName "유튜브 구간 편집기"
 #define AppExe "YoutubeClipper.exe"
-#define AppVersion "1.0.0"
+#ifndef AppVersion
+  ; build.ps1 이 /DAppVersion= 으로 넘긴다. 직접 열어 빌드할 때만 이 값을 쓴다.
+  #define AppVersion "0.0.0"
+#endif
 #define AppPublisher "plnman"
 #define AppUrl "https://github.com/plnman/Vidoe_clip"
 

@@ -907,6 +907,7 @@ async function init() {
   try {
     const health = await api('/api/health');
     if (!health.ffmpeg) notice($('health'), health.error);
+    if (health.app) $('appVersion').textContent = health.app.display;
     const formatSelect = $('format');
     for (const [value, label] of Object.entries(health.formats || {})) {
       const option = document.createElement('option');

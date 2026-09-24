@@ -10,3 +10,6 @@ packaging/bin/
 build/
 dist/
 *.spec.bak
+
+# 빌드할 때 만들어진다
+app/_build.py

@@ -20,6 +20,9 @@ echo "== 함께 넣을 바이너리 =="
 
 echo "== 빌드 =="
 rm -rf build dist
+# 어느 빌드인지 앱 안에 새긴다
+"$PYTHON" packaging/stamp.py
+
 "$PYTHON" -m PyInstaller --noconfirm --clean packaging/clipper.spec
 
 # ffmpeg 등은 실행 파일 옆 bin/ 에 있어야 한다(config.bundled_bin_dir).
