@@ -29,7 +29,9 @@ def _tool(name: str) -> str:
 FFMPEG = _tool("ffmpeg")
 FFPROBE = _tool("ffprobe")
 
-_PROGRESS_RE = re.compile(r"^(out_time_us|out_time_ms|progress)=(.*)$")
+# out_time_ms 는 이름과 달리 값이 마이크로초다(ffmpeg의 오래된 quirk). 밀리초로 읽으면
+# 진행률이 1000배가 되어 시작하자마자 100%가 된다. 그래서 out_time_us 만 쓴다.
+_PROGRESS_RE = re.compile(r"^(out_time_us|progress)=(.*)$")
 
 
 class MediaError(RuntimeError):
@@ -153,21 +155,18 @@ def _run_with_progress(
             if not match or total_seconds <= 0:
                 continue
             if on_progress is None and match.group(1) != "progress":
-                continue
+                continue  # 진행률을 안 받더라도 끝났다는 신호는 봐야 한다
             key, value = match.groups()
-            if key == "progress" and value.strip() == "end":
-                mark_finalizing()
-                continue
-            if key in ("out_time_us", "out_time_ms"):
-                try:
-                    micros = float(value)
-                except ValueError:
-                    continue
-                seconds = micros / (1e6 if key == "out_time_us" else 1e3)
-                fraction = min(1.0, max(0.0, seconds / total_seconds))
-                on_progress(fraction)
-                if fraction >= 0.999:
+            if key == "progress":
+                # 인코딩이 끝났다는 신호. 이 뒤로도 파일을 마무리하는 시간이 남아 있다.
+                if value.strip() == "end":
                     mark_finalizing()
+                continue
+            try:
+                micros = float(value)  # out_time_us
+            except ValueError:
+                continue  # 시작 직후에는 N/A 가 온다
+            on_progress(min(1.0, max(0.0, micros / 1e6 / total_seconds)))
     finally:
         proc.wait()
         watcher.join(timeout=1)
@@ -528,6 +527,10 @@ def render(
     if want_video and fmt != "gif":
         found = detect_hardware_encoder(spec["vcodec"])
         hardware = found[0] if found else None
+        # 느리다는 이야기가 나왔을 때 무엇으로 만들었는지 바로 알 수 있어야 한다
+        print(f"[render] {fmt} {quality} · 인코더 "
+              f"{hardware or spec.get('vcodec', 'libx264') + ' (CPU)'} · "
+              f"{total:.0f}초 · 구간 {len(cuts)}개", flush=True)
 
     try:
         # 제목을 넣을 때는 그 폴더에서 실행한다. 필터그래프가 상대 파일명을 쓰기 때문이다.

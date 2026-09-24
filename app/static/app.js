@@ -908,6 +908,14 @@ async function init() {
     const health = await api('/api/health');
     if (!health.ffmpeg) notice($('health'), health.error);
     if (health.app) $('appVersion').textContent = health.app.display;
+    if (health.hardware) {
+      const hw = health.hardware;
+      $('encoderStatus').textContent = hw.encoder
+        ? `${hw.vendor} GPU 사용 (${hw.encoder}) — 빠릅니다`
+        : (hw.enabled
+            ? 'CPU 사용 — GPU 인코더를 찾지 못했습니다. 긴 영상은 몇 분 걸립니다'
+            : 'CPU 사용 (CLIPPER_HARDWARE=off 로 꺼둠)');
+    }
     const formatSelect = $('format');
     for (const [value, label] of Object.entries(health.formats || {})) {
       const option = document.createElement('option');

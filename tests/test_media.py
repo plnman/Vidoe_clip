@@ -299,3 +299,53 @@ def test_render_reports_the_finalizing_phase(source, tmp_path):
                  on_phase=phases.append)
     assert "finalizing" in phases
     assert phases.count("finalizing") == 1, "한 번만 알려야 한다"
+
+
+# --- 진행률 파싱 --------------------------------------------------------------
+
+def _fake_ffmpeg(lines):
+    """ffmpeg의 -progress 출력을 그대로 흉내 내는 명령."""
+    import sys
+    body = "\n".join(f"print({line!r})" for line in lines)
+    return [sys.executable, "-c", body]
+
+
+def test_progress_ignores_out_time_ms_which_is_actually_microseconds():
+    """ffmpeg의 out_time_ms 는 이름과 달리 값이 마이크로초다.
+
+    밀리초로 읽으면 진행률이 1000배가 되어 시작하자마자 100%가 된다.
+    실제로 그 버그 때문에 화면이 늘 99%에 붙어 있었다.
+    """
+    seen = []
+    media._run_with_progress(
+        _fake_ffmpeg([
+            "out_time_us=5000000",   # 5초
+            "out_time_ms=5000000",   # 같은 5초를 ms 이름으로 또 보낸다
+            "progress=continue",
+        ]),
+        total_seconds=100.0, on_progress=seen.append, cancel=None,
+    )
+    assert seen == [pytest.approx(0.05)], f"5/100 = 0.05 여야 하는데 {seen}"
+
+
+def test_progress_handles_na_at_startup():
+    seen = []
+    media._run_with_progress(
+        _fake_ffmpeg(["out_time_us=N/A", "out_time_us=2500000", "progress=continue"]),
+        total_seconds=10.0, on_progress=seen.append, cancel=None,
+    )
+    assert seen == [pytest.approx(0.25)]
+
+
+def test_finalizing_fires_only_when_encoding_ends():
+    """진행률이 100%에 닿았다고 끝난 게 아니다. progress=end 만 믿는다."""
+    phases = []
+    media._run_with_progress(
+        _fake_ffmpeg([
+            "out_time_us=10000000", "progress=continue",   # 100% 지만 아직 진행 중
+            "out_time_us=10000000", "progress=end",
+        ]),
+        total_seconds=10.0, on_progress=lambda f: None, cancel=None,
+        on_phase=phases.append,
+    )
+    assert phases == ["finalizing"]
