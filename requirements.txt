@@ -3,3 +3,7 @@ uvicorn[standard]>=0.30
 yt-dlp>=2025.1.1
 pydantic>=2.7
 python-multipart>=0.0.9
+# yt-dlp가 SSL 인증서를 찾을 때 쓴다. 묶어서 배포할 때 빠지면
+# certifi 폴더만 남아 namespace package가 되고, yt_dlp/dependencies 의
+# certifi.where() 에서 AttributeError 로 앱이 시작조차 못 한다.
+certifi

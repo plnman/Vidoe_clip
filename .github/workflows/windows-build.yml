@@ -40,6 +40,31 @@ jobs:
         shell: pwsh
         run: .\packaging\build.ps1 -Installer
 
+      # 빌드가 됐다고 켜지는 게 아니다. v1.1.0 첫 빌드는 만들어졌지만
+      # certifi 문제로 시작조차 못 했다. 실제로 띄워서 응답하는지 본다.
+      - name: 켜지는지 확인
+        shell: pwsh
+        run: |
+          $exe = "dist\YoutubeClipper\YoutubeClipper.exe"
+          if (-not (Test-Path $exe)) { throw "실행 파일이 없습니다: $exe" }
+          $proc = Start-Process -FilePath $exe -ArgumentList "--no-open","--port","8765" -PassThru
+          $health = $null
+          foreach ($i in 1..60) {
+            Start-Sleep -Seconds 1
+            try {
+              $res = Invoke-WebRequest "http://127.0.0.1:8765/api/health" -UseBasicParsing -TimeoutSec 3
+              if ($res.StatusCode -eq 200) { $health = $res.Content; break }
+            } catch { }
+          }
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          if (-not $health) {
+            Write-Host "== app.log =="
+            Get-Content "$env:LOCALAPPDATA\YoutubeClipper\app.log" -Tail 60 -ErrorAction SilentlyContinue
+            throw "빌드는 됐지만 앱이 시작되지 않았습니다"
+          }
+          Write-Host "앱이 응답했습니다:"
+          Write-Host $health
+
       - name: 버전 읽기
         id: ver
         shell: pwsh

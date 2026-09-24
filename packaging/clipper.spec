@@ -19,7 +19,12 @@ ROOT = Path(SPECPATH).parent
 # yt-dlp는 추출기를 동적으로 import 한다. 정적 분석으로는 안 잡혀서 통째로 넣는다.
 ytdlp_datas, ytdlp_binaries, ytdlp_hidden = collect_all("yt_dlp")
 
-hidden = ytdlp_hidden + [
+# certifi 는 데이터(cacert.pem)만 딸려 들어가기 쉽다. 그러면 모듈 없는 폴더가 되어
+# import 는 되는데 where() 가 없고, yt_dlp/dependencies 가 그걸 호출하다 죽는다.
+# (v1.1.0 첫 빌드가 "module 'certifi' has no attribute 'where'" 로 시작하지 못했다.)
+certifi_datas, certifi_binaries, certifi_hidden = collect_all("certifi")
+
+hidden = ytdlp_hidden + certifi_hidden + [
     "uvicorn.logging",
     "uvicorn.loops.auto",
     "uvicorn.loops.asyncio",
@@ -38,8 +43,8 @@ hidden += collect_submodules("app")
 a = Analysis(
     [str(ROOT / "packaging" / "entry.py")],
     pathex=[str(ROOT)],
-    binaries=ytdlp_binaries,
-    datas=[(str(ROOT / "app" / "static"), "app/static")] + ytdlp_datas,
+    binaries=ytdlp_binaries + certifi_binaries,
+    datas=[(str(ROOT / "app" / "static"), "app/static")] + ytdlp_datas + certifi_datas,
     hiddenimports=hidden,
     hookspath=[],
     excludes=["tkinter", "matplotlib", "numpy", "PIL", "pytest"],
