@@ -65,6 +65,19 @@ jobs:
           Write-Host "앱이 응답했습니다:"
           Write-Host $health
 
+      # 번들한 ffmpeg 에 GPU 인코더가 들어 있는지 기록해 둔다.
+      # "GPU를 못 쓴다"는 이야기가 나왔을 때 빌드 문제인지 사용자 PC 문제인지 갈린다.
+      - name: 번들 ffmpeg 의 하드웨어 인코더
+        shell: pwsh
+        run: |
+          $ff = "dist\YoutubeClipper\bin\ffmpeg.exe"
+          if (-not (Test-Path $ff)) { Write-Host "번들 ffmpeg 없음: $ff"; exit 0 }
+          & $ff -hide_banner -version | Select-Object -First 1
+          $found = & $ff -hide_banner -encoders |
+                   Select-String -Pattern "nvenc|_qsv|_amf|videotoolbox"
+          if ($found) { $found | ForEach-Object { Write-Host $_ } }
+          else { Write-Host "하드웨어 인코더가 하나도 없습니다" }
+
       - name: 버전 읽기
         id: ver
         shell: pwsh
