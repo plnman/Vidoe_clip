@@ -335,6 +335,7 @@ CLIPPER_COOKIES_FROM_BROWSER=chrome ./run.sh
 | `CLIPPER_PORT` | `8000` | 포트 |
 | `CLIPPER_WORK_DIR` | 시스템 임시 폴더의 `yt-clipper` | 작업 파일 저장 위치 |
 | `CLIPPER_DEFAULT_HEIGHT` | `1080` | 기본 화질 상한 |
+| `CLIPPER_HARDWARE` | `auto` | GPU 인코더 사용. `off`면 항상 CPU로 인코딩 |
 | `CLIPPER_DEFAULT_PAD` | `10` | 기본 편집 여유분(초) |
 | `CLIPPER_MAX_SEGMENTS` | `60` | 구간 개수 상한 |
 | `CLIPPER_MAX_TOTAL_SECONDS` | `10800` | 완성본 길이 상한 |
@@ -392,6 +393,11 @@ python tests/browser_smoke.py
 - 작업 파일은 `CLIPPER_PROJECT_TTL` 이후 자동 삭제됩니다. 결과물은 그전에 내려받으세요.
 - 렌더는 항상 재인코딩합니다(H.264/AAC). 구간 경계가 정확하고 어디서나 재생되는 대신,
   긴 완성본은 시간이 걸립니다. `빠름` 품질이 기본입니다.
+- GPU 인코더(NVIDIA·Intel·AMD·Apple)가 있으면 자동으로 찾아 씁니다. 몇 배 빨라집니다.
+  `python -m app.doctor`의 `영상 인코딩` 줄에서 무엇을 쓰는지 확인할 수 있습니다.
+  화질이 마음에 안 들면 `CLIPPER_HARDWARE=off`로 CPU 인코딩으로 되돌립니다.
+- 진행률이 99%에서 한동안 머무는 것은 정상입니다. 인코딩이 끝난 뒤 파일을
+  마무리하는 시간이며, 그동안 화면은 `파일 마무리하는 중`으로 바뀝니다.
 - 화질을 1080p로 고르고도 낮게 나온다면, 그 영상 자체가 그 화질까지만 있는 것입니다.
   이 앱은 **있는 것 중에서 상한 이하로 가장 좋은 것**을 고릅니다.
 - 작업하던 프로젝트는 앱을 끄면 사라집니다. 결과물은 그전에 내려받으세요.

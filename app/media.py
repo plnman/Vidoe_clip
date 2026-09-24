@@ -111,9 +111,15 @@ def probe(path: Path) -> MediaInfo:
 
 
 def _run_with_progress(
-    cmd, total_seconds: float, on_progress, cancel: threading.Event | None, cwd: Path | None = None
+    cmd, total_seconds: float, on_progress, cancel: threading.Event | None,
+    cwd: Path | None = None, on_phase=None,
 ) -> None:
-    """ffmpeg을 돌리며 진행률(0~1)을 보고한다."""
+    """ffmpeg을 돌리며 진행률(0~1)을 보고한다.
+
+    마지막 프레임을 넘기면 진행률이 더 올라가지 않는데, 그 뒤로도 파일을 마무리하는
+    시간이 꽤 걸린다(mp4는 moov를 앞으로 옮기느라 파일 전체를 다시 쓴다).
+    그 구간을 알리지 않으면 화면이 99%에서 멈춘 것처럼 보인다.
+    """
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
         cwd=str(cwd) if cwd else None, **_TEXT,
@@ -128,6 +134,14 @@ def _run_with_progress(
     watcher = threading.Thread(target=drain_stderr, daemon=True)
     watcher.start()
     cancelled = False
+    finalizing = False
+
+    def mark_finalizing() -> None:
+        nonlocal finalizing
+        if not finalizing:
+            finalizing = True
+            if on_phase:
+                on_phase("finalizing")
 
     try:
         for line in proc.stdout:
@@ -136,16 +150,24 @@ def _run_with_progress(
                 proc.kill()
                 break
             match = _PROGRESS_RE.match(line.strip())
-            if not match or on_progress is None or total_seconds <= 0:
+            if not match or total_seconds <= 0:
+                continue
+            if on_progress is None and match.group(1) != "progress":
                 continue
             key, value = match.groups()
+            if key == "progress" and value.strip() == "end":
+                mark_finalizing()
+                continue
             if key in ("out_time_us", "out_time_ms"):
                 try:
                     micros = float(value)
                 except ValueError:
                     continue
                 seconds = micros / (1e6 if key == "out_time_us" else 1e3)
-                on_progress(min(1.0, max(0.0, seconds / total_seconds)))
+                fraction = min(1.0, max(0.0, seconds / total_seconds))
+                on_progress(fraction)
+                if fraction >= 0.999:
+                    mark_finalizing()
     finally:
         proc.wait()
         watcher.join(timeout=1)
@@ -263,6 +285,84 @@ FORMATS: dict[str, dict] = {
 DEFAULT_FORMAT = "mp4"
 MAX_GIF_SECONDS = 60
 
+# GPU의 전용 인코딩 회로. 같은 영상을 CPU보다 몇 배 빨리 만든다. 같은 용량 대비
+# 화질은 조금 떨어지지만 클립 저장 용도에는 차이를 느끼기 어렵다.
+# 순서가 우선순위다. 먼저 되는 것을 쓴다.
+_HW_CANDIDATES = {
+    "libx264": [("h264_nvenc", "NVIDIA"), ("h264_qsv", "Intel"),
+                ("h264_amf", "AMD"), ("h264_videotoolbox", "Apple")],
+    "libx265": [("hevc_nvenc", "NVIDIA"), ("hevc_qsv", "Intel"),
+                ("hevc_amf", "AMD"), ("hevc_videotoolbox", "Apple")],
+}
+
+_hw_cache: dict[str, tuple[str, str] | None] = {}
+_encoder_list: set[str] | None = None
+
+
+def _compiled_encoders() -> set[str]:
+    """이 ffmpeg에 들어 있는 인코더 이름. 없는 것은 돌려볼 필요도 없다."""
+    global _encoder_list
+    if _encoder_list is None:
+        try:
+            done = subprocess.run([FFMPEG, "-hide_banner", "-encoders"],
+                                  capture_output=True, timeout=20, **_TEXT)
+            _encoder_list = set(re.findall(r"^\s*[VAS][.A-Z]{5}\s+(\S+)",
+                                           done.stdout or "", re.MULTILINE))
+        except (OSError, subprocess.SubprocessError):
+            _encoder_list = set()
+    return _encoder_list
+
+
+def _encoder_works(name: str) -> bool:
+    """실제로 1초도 안 되는 영상을 인코딩해 본다.
+
+    `ffmpeg -encoders` 목록에 있다고 되는 게 아니다. 윈도우용 ffmpeg 빌드는
+    NVIDIA 카드가 없어도 h264_nvenc를 목록에 넣어두기 때문에, 돌려봐야 안다.
+    """
+    cmd = [FFMPEG, "-v", "error", "-f", "lavfi",
+           "-i", "color=c=black:s=320x240:r=10:d=0.4", "-c:v", name, "-f", "null", "-"]
+    try:
+        done = subprocess.run(cmd, capture_output=True, timeout=25, **_TEXT)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
+def detect_hardware_encoder(vcodec: str = "libx264") -> tuple[str, str] | None:
+    """쓸 수 있는 하드웨어 인코더 (이름, 제조사). 없으면 None. 한 번만 조사한다."""
+    if config.HARDWARE == "off":
+        return None
+    if vcodec in _hw_cache:
+        return _hw_cache[vcodec]
+    compiled = _compiled_encoders()
+    found = None
+    for name, vendor in _HW_CANDIDATES.get(vcodec, []):
+        if compiled and name not in compiled:
+            continue  # 아예 빌드에 없다. 돌려볼 것도 없음
+        if _encoder_works(name):
+            found = (name, vendor)
+            break
+    _hw_cache[vcodec] = found
+    return found
+
+
+def _hw_quality_args(name: str, quality: str) -> list[str]:
+    """하드웨어 인코더는 -preset/-crf를 안 쓴다. 종류마다 다른 이름을 쓴다."""
+    level = {"fast": 0, "balanced": 1, "quality": 2}.get(quality, 0)
+    if "nvenc" in name:
+        return ["-preset", ("p2", "p4", "p6")[level], "-rc", "vbr",
+                "-cq", ("28", "24", "21")[level], "-b:v", "0"]
+    if "qsv" in name:
+        return ["-preset", ("veryfast", "medium", "slow")[level],
+                "-global_quality", ("28", "24", "21")[level]]
+    if "amf" in name:
+        qp = ("28", "24", "21")[level]
+        return ["-quality", ("speed", "balanced", "quality")[level],
+                "-rc", "cqp", "-qp_i", qp, "-qp_p", qp]
+    if "videotoolbox" in name:
+        return ["-q:v", ("40", "55", "68")[level]]
+    return []
+
 
 def format_spec(fmt: str) -> dict:
     spec = FORMATS.get(fmt)
@@ -276,12 +376,18 @@ def _quality_of(spec: dict, quality: str):
     return presets.get(quality) or presets.get("fast")
 
 
-def _encode_args(fmt: str, quality: str, want_video: bool, want_audio: bool) -> list[str]:
+def _encode_args(
+    fmt: str, quality: str, want_video: bool, want_audio: bool, hw: str | None = None
+) -> list[str]:
     """포맷별 인코딩 옵션. 매핑은 호출하는 쪽에서 붙인다."""
     spec = format_spec(fmt)
     args: list[str] = []
 
-    if want_video and fmt != "gif":
+    if want_video and fmt != "gif" and hw:
+        args += ["-c:v", hw, *_hw_quality_args(hw, quality), "-pix_fmt", "yuv420p"]
+        if hw.startswith("hevc") and spec["ext"] == ".mp4":
+            args += ["-tag:v", "hvc1"]  # 애플 기기에서 재생되게
+    elif want_video and fmt != "gif":
         setting, crf = _quality_of(spec, quality)
         if spec["vcodec"] == "libvpx-vp9":
             args += ["-c:v", "libvpx-vp9", "-crf", str(crf), "-b:v", "0",
@@ -315,6 +421,7 @@ def render(
     quality: str = "fast",
     titles: bool = False,
     on_progress=None,
+    on_phase=None,
     warn=None,
     cancel: threading.Event | None = None,
 ) -> Path:
@@ -410,12 +517,35 @@ def render(
 
     cmd += ["-filter_complex", ";".join(parts)]
     cmd += maps
-    cmd += _encode_args(fmt, quality, want_video, want_audio)
-    cmd.append(str(out_path))
+    base_cmd = list(cmd)
+
+    def full(use_hw: str | None) -> list[str]:
+        return [*base_cmd,
+                *_encode_args(fmt, quality, want_video, want_audio, hw=use_hw),
+                str(out_path)]
+
+    hardware = None
+    if want_video and fmt != "gif":
+        found = detect_hardware_encoder(spec["vcodec"])
+        hardware = found[0] if found else None
 
     try:
         # 제목을 넣을 때는 그 폴더에서 실행한다. 필터그래프가 상대 파일명을 쓰기 때문이다.
-        _run_with_progress(cmd, total, on_progress, cancel, cwd=workdir)
+        try:
+            _run_with_progress(full(hardware), total, on_progress, cancel,
+                               cwd=workdir, on_phase=on_phase)
+        except MediaError:
+            # 조사에서는 됐는데 실제 인코딩에서 실패할 수 있다(드라이버, 해상도 제한 등).
+            # 완성본을 못 받는 것보다 느리게라도 받는 편이 낫다.
+            if hardware is None:
+                raise
+            _hw_cache[spec["vcodec"]] = None
+            if warn:
+                warn("하드웨어 인코더가 실패해 CPU로 다시 만듭니다")
+            if on_progress:
+                on_progress(0.0)
+            _run_with_progress(full(None), total, on_progress, cancel,
+                               cwd=workdir, on_phase=on_phase)
     finally:
         if workdir is not None:
             shutil.rmtree(workdir, ignore_errors=True)

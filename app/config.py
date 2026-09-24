@@ -99,6 +99,10 @@ MAX_PAD = _int("CLIPPER_MAX_PAD", 120)
 
 DEFAULT_HEIGHT = _int("CLIPPER_DEFAULT_HEIGHT", 1080)
 
+# GPU 인코더 사용 여부. "auto"면 쓸 수 있으면 쓰고, "off"면 항상 CPU로 인코딩한다.
+# 화질이 마음에 안 들 때 되돌릴 수 있는 탈출구다.
+HARDWARE = (os.environ.get("CLIPPER_HARDWARE", "auto") or "auto").strip().lower()
+
 # 받을 양이 영상의 이 비율을 넘으면 통째로 받는 편이 빠르다.
 #
 # 두 경로의 속도가 구조적으로 다르기 때문이다. 전체 받기는 yt-dlp의 조각 다운로더가

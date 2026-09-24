@@ -218,3 +218,84 @@ def test_special_characters_in_a_title_do_not_break_the_filtergraph(tmp_path):
         [media.Cut(source, 0.0, 3.0, title=nasty)], tmp_path / "nasty.mp4", titles=True
     )
     assert media.probe(out).duration == pytest.approx(3.0, abs=0.3)
+
+
+# --- 하드웨어 인코더 ----------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "name,expect",
+    [
+        ("h264_nvenc", "-cq"),
+        ("h264_qsv", "-global_quality"),
+        ("h264_amf", "-qp_i"),
+        ("h264_videotoolbox", "-q:v"),
+    ],
+)
+def test_hardware_quality_args_use_each_encoder_own_knob(name, expect):
+    """하드웨어 인코더는 -crf를 모른다. 종류마다 다른 이름을 써야 한다."""
+    args = media._hw_quality_args(name, "fast")
+    assert expect in args
+    assert "-crf" not in args
+
+
+def test_hardware_quality_follows_the_quality_step():
+    fast = media._hw_quality_args("h264_nvenc", "fast")
+    best = media._hw_quality_args("h264_nvenc", "quality")
+    assert fast[fast.index("-cq") + 1] > best[best.index("-cq") + 1]  # 숫자가 작을수록 고화질
+
+
+def test_detection_skips_encoders_not_in_the_build(monkeypatch):
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_compiled_encoders", lambda: {"libx264"})
+    tried = []
+    monkeypatch.setattr(media, "_encoder_works", lambda name: tried.append(name) or False)
+    assert media.detect_hardware_encoder("libx264") is None
+    assert tried == [], "빌드에 없는 인코더를 굳이 돌려봤다"
+
+
+def test_detection_tries_candidates_and_caches(monkeypatch):
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_compiled_encoders", lambda: set())
+    calls = []
+
+    def works(name):
+        calls.append(name)
+        return name == "h264_qsv"
+
+    monkeypatch.setattr(media, "_encoder_works", works)
+    assert media.detect_hardware_encoder("libx264") == ("h264_qsv", "Intel")
+    assert calls == ["h264_nvenc", "h264_qsv"], "되는 것을 찾으면 멈춰야 한다"
+    media.detect_hardware_encoder("libx264")
+    assert len(calls) == 2, "두 번째 조회는 조사하지 않고 기억한 값을 써야 한다"
+
+
+def test_hardware_can_be_turned_off(monkeypatch):
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media.config, "HARDWARE", "off")
+    monkeypatch.setattr(media, "_encoder_works", lambda name: True)
+    assert media.detect_hardware_encoder("libx264") is None
+
+
+def test_encode_args_use_hardware_encoder_when_given():
+    args = media._encode_args("mp4", "fast", True, True, hw="h264_nvenc")
+    assert "h264_nvenc" in args and "libx264" not in args
+
+
+def test_render_falls_back_to_cpu_when_hardware_fails(source, tmp_path, monkeypatch):
+    """조사에서는 됐는데 실제 인코딩에서 실패할 수 있다. 그래도 완성본은 나와야 한다."""
+    monkeypatch.setattr(media, "detect_hardware_encoder", lambda vcodec: ("h264_없는것", "테스트"))
+    warnings = []
+    out = media.render([media.Cut(source, 1.0, 3.0)], tmp_path / "fallback.mp4",
+                       warn=warnings.append)
+    info = media.probe(out)
+    assert info.duration == pytest.approx(2.0, abs=0.4)
+    assert any("CPU로 다시" in text for text in warnings), "되돌렸다는 사실을 알려야 한다"
+
+
+def test_render_reports_the_finalizing_phase(source, tmp_path):
+    """인코딩이 끝난 뒤 파일을 마무리하는 시간에는 진행률이 나오지 않는다."""
+    phases = []
+    media.render([media.Cut(source, 0.0, 2.0)], tmp_path / "phase.mp4",
+                 on_phase=phases.append)
+    assert "finalizing" in phases
+    assert phases.count("finalizing") == 1, "한 번만 알려야 한다"

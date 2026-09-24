@@ -663,6 +663,17 @@ class ProjectStore:
             title=cut.title,
         )
 
+    def _render_phase(self, project: Project, phase: str) -> None:
+        """인코딩이 끝난 뒤의 시간을 화면에 설명한다.
+
+        mp4는 마지막에 moov를 앞으로 옮기느라 파일 전체를 다시 쓴다. 길이가 긴
+        결과물은 여기서 수십 초가 걸리는데 진행률이 전혀 나오지 않는다.
+        그대로 두면 99%에서 멈춘 것처럼 보인다.
+        """
+        if phase == "finalizing":
+            project.task.message = "파일 마무리하는 중"
+            project.task.indeterminate = True
+
     def _render(
         self, project: Project, fmt: str, quality: str, separate: bool, titles: bool = False
     ) -> None:
@@ -683,6 +694,7 @@ class ProjectStore:
                     quality=quality,
                     titles=titles,
                     on_progress=lambda f: setattr(project.task, "progress", min(0.99, f)),
+                    on_phase=lambda phase: self._render_phase(project, phase),
                     warn=lambda text: setattr(project.task, "message", text),
                     cancel=project.cancel,
                 )

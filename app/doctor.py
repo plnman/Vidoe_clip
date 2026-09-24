@@ -94,7 +94,21 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
     report.add(Check("yt-dlp 버전", True, yt_dlp.version.__version__,
                      "1년 이상 지난 버전이면 pip install -U yt-dlp 하세요"))
 
-    # 3. 자바스크립트 런타임 — 유튜브 챌린지를 푸는 데 쓰인다
+    # 3. 영상 인코더 — GPU를 쓰면 몇 배 빠르다
+    found = media.detect_hardware_encoder("libx264")
+    report.add(Check(
+        name="영상 인코딩",
+        ok=True,
+        advisory=True,
+        detail=(f"{found[1]} GPU 사용 ({found[0]})" if found
+                else "CPU 사용. 긴 영상은 몇 분 걸립니다"),
+        hint="" if found else (
+            "GPU 인코더를 못 찾았습니다. 그래픽 드라이버가 최신인지 확인해 보세요.\n"
+            "     없어도 동작하지만, 18분짜리 결과물이 CPU로는 수 분 걸립니다."
+        ),
+    ))
+
+    # 4. 자바스크립트 런타임 — 유튜브 챌린지를 푸는 데 쓰인다
     runtimes = downloader.available_js_runtimes()
     report.add(Check(
         name="자바스크립트 런타임",
@@ -108,7 +122,7 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
         ),
     ))
 
-    # 4. 링크 해석
+    # 5. 링크 해석
     link = report.add(Check("링크 해석"))
     try:
         normalized = downloader.normalize_url(url)
@@ -118,7 +132,7 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
         _skip_rest(report, ["영상 정보 조회", "구간 다운로드", "받은 파일 확인", "잘라 이어붙이기"])
         return report
 
-    # 5. 정보 조회 (다운로드 없음)
+    # 6. 정보 조회 (다운로드 없음)
     info_check = report.add(Check("영상 정보 조회"))
     try:
         info = downloader.probe_url(normalized)
@@ -129,7 +143,7 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
         _skip_rest(report, ["구간 다운로드", "받은 파일 확인", "잘라 이어붙이기"])
         return report
 
-    # 6. 실제로 5초만 받아 본다
+    # 7. 실제로 5초만 받아 본다
     start = max(0.0, min(info.duration - PROBE_SECONDS - 1, info.duration / 3))
     end = start + PROBE_SECONDS
     fetch = report.add(Check(f"구간 다운로드 ({format_timecode(start)}~{format_timecode(end)}, {height}p)"))
@@ -143,7 +157,7 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
         _skip_rest(report, ["받은 파일 확인", "잘라 이어붙이기"])
         return report
 
-    # 7. 받은 파일이 요청한 길이와 맞는지 (여유분 계산의 전제)
+    # 8. 받은 파일이 요청한 길이와 맞는지 (여유분 계산의 전제)
     shape = report.add(Check("받은 파일 확인"))
     try:
         probed = media.probe(clip)
@@ -157,7 +171,7 @@ def run_checks(url: str, height: int = 720, workdir: Path | None = None) -> Repo
     except media.MediaError as exc:
         shape.detail = str(exc)
 
-    # 8. 잘라서 이어붙이기까지
+    # 9. 잘라서 이어붙이기까지
     cut = report.add(Check("잘라 이어붙이기"))
     try:
         out = media.render([media.Cut(clip, 0.5, 2.5), media.Cut(clip, 3.0, 4.0)], temp / "out.mp4")

@@ -448,3 +448,25 @@ def test_sweep_keeps_a_folder_that_is_still_fresh(client):
 
     projects.store.sweep()
     assert fresh.exists(), "아직 쓸 수 있는 것을 지우면 안 된다"
+
+
+def test_health_reports_hardware_encoder(client):
+    body = client.get("/api/health").json()
+    assert "hardware" in body
+    assert set(body["hardware"]) == {"encoder", "vendor", "enabled"}
+
+
+def test_finalizing_phase_is_shown_instead_of_a_frozen_99_percent(client):
+    """인코딩이 끝난 뒤 파일 마무리 시간에는 진행률이 없다. 멈춘 것처럼 보이면 안 된다."""
+    project = make_project(client)
+    pid = project["id"]
+    client.post(f"/api/projects/{pid}/segments", json={"text": "0:30-0:35 가"})
+
+    live = projects.store.get(pid)
+    live.task.progress = 0.99
+    live.task.indeterminate = False
+    projects.store._render_phase(live, "finalizing")
+
+    assert live.task.message == "파일 마무리하는 중"
+    assert live.task.indeterminate is True
+    assert client.get(f"/api/projects/{pid}").json()["task"]["indeterminate"] is True

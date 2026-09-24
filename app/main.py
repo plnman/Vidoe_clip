@@ -101,6 +101,16 @@ def require_loopback(request: Request) -> None:
         )
 
 
+def _hardware_status() -> dict:
+    """GPU 인코더를 쓰고 있는지. 조사에 시간이 걸리므로 결과는 기억해 둔다."""
+    found = media.detect_hardware_encoder("libx264")
+    return {
+        "encoder": found[0] if found else None,
+        "vendor": found[1] if found else None,
+        "enabled": config.HARDWARE != "off",
+    }
+
+
 @app.get("/api/health")
 def health(request: Request) -> dict:
     try:
@@ -128,6 +138,7 @@ def health(request: Request) -> dict:
         },
         "presets": {k: v["label"] for k, v in config.RENDER_PRESETS.items()},
         "formats": {k: v["label"] for k, v in media.FORMATS.items()},
+        "hardware": _hardware_status(),
         "default_format": media.DEFAULT_FORMAT,
     }
 
