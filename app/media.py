@@ -356,6 +356,68 @@ def _encode_seconds(name: str, extra: list[str]) -> float | None:
     return time.perf_counter() - began if done.returncode == 0 else None
 
 
+# 재는 데 몇 초가 든다. 앱을 켤 때마다 다시 재면 그만큼 첫 화면이 늦는다.
+# ffmpeg이 바뀌지 않는 한 결과도 바뀌지 않으므로 파일에 적어두고 다시 쓴다.
+_CACHE_VERSION = 1
+
+
+def _encoder_cache_file() -> Path:
+    return config.user_data_dir() / "encoder.json"
+
+
+def _fingerprint() -> str:
+    """이 판단이 유효한 조건. 달라지면 다시 잰다."""
+    path = shutil.which(FFMPEG) or FFMPEG
+    try:
+        stat = Path(path).stat()
+        mark = f"{stat.st_size}:{int(stat.st_mtime)}"
+    except OSError:
+        mark = "?"
+    return f"{_CACHE_VERSION}|{path}|{mark}|{config.HARDWARE}"
+
+
+def _load_cached_choice(vcodec: str) -> bool:
+    """전에 재둔 결과가 아직 유효하면 가져온다."""
+    try:
+        saved = json.loads(_encoder_cache_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if saved.get("fingerprint") != _fingerprint() or vcodec not in saved.get("codecs", {}):
+        return False
+    entry = saved["codecs"][vcodec]
+    found = entry.get("found")
+    _hw_cache[vcodec] = tuple(found) if found else None
+    _hw_attempts[vcodec] = entry.get("attempts", [])
+    return True
+
+
+def _save_cached_choice(vcodec: str) -> None:
+    path = _encoder_cache_file()
+    try:
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        if saved.get("fingerprint") != _fingerprint():
+            saved = {}
+    except (OSError, ValueError):
+        saved = {}
+    codecs = saved.get("codecs", {}) if saved else {}
+    found = _hw_cache.get(vcodec)
+    codecs[vcodec] = {"found": list(found) if found else None,
+                      "attempts": _hw_attempts.get(vcodec, [])}
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"fingerprint": _fingerprint(), "codecs": codecs}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass  # 못 적어도 다음에 다시 재면 그만이다
+
+
+# 이만큼은 빨라야 GPU로 바꿀 값어치가 있다. 재는 값에 흔들림이 있어서,
+# 차이가 미미하면 켤 때마다 고르는 쪽이 달라진다.
+_HW_MARGIN = 1.1
+
+
 def _hardware_beats_cpu(name: str) -> tuple[bool, str]:
     """GPU가 정말 CPU보다 빠른가. (빠른가, 사람이 읽을 설명)
 
@@ -372,7 +434,7 @@ def _hardware_beats_cpu(name: str) -> tuple[bool, str]:
         return True, ""  # CPU 쪽을 못 쟀으면 판단 근거가 없다. 되는 것을 쓴다.
 
     speeds = f"GPU {_BENCH_SECONDS / gpu:.1f}배속 vs CPU {_BENCH_SECONDS / cpu:.1f}배속"
-    if gpu < cpu:
+    if gpu * _HW_MARGIN < cpu:
         return True, speeds
     return False, f"CPU보다 느려서 쓰지 않습니다 ({speeds})"
 
@@ -382,6 +444,8 @@ def detect_hardware_encoder(vcodec: str = "libx264") -> tuple[str, str] | None:
     if config.HARDWARE == "off":
         return None
     if vcodec in _hw_cache:
+        return _hw_cache[vcodec]
+    if _load_cached_choice(vcodec):
         return _hw_cache[vcodec]
     compiled = _compiled_encoders()
     found = None
@@ -401,6 +465,7 @@ def detect_hardware_encoder(vcodec: str = "libx264") -> tuple[str, str] | None:
             break
     _hw_cache[vcodec] = found
     _hw_attempts[vcodec] = attempts
+    _save_cached_choice(vcodec)
     for attempt in attempts:
         if attempt["ok"]:
             note = f" ({attempt['reason']})" if attempt["reason"] else ""

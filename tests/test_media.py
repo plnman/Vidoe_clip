@@ -432,3 +432,53 @@ def test_unmeasurable_cpu_does_not_block_hardware(monkeypatch):
     monkeypatch.setattr(media, "_encode_seconds",
                         lambda name, extra: None if name == "libx264" else 1.0)
     assert media.detect_hardware_encoder("libx264") == ("h264_nvenc", "NVIDIA")
+
+
+# --- 한 번 재면 기억한다 ------------------------------------------------------
+
+def test_choice_is_remembered_across_restarts(tmp_path, monkeypatch):
+    """재는 데 몇 초가 든다. 앱을 켤 때마다 다시 재면 첫 화면이 그만큼 늦는다."""
+    monkeypatch.setattr(media.config, "user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
+    monkeypatch.setattr(media, "_compiled_encoders", lambda: set())
+    monkeypatch.setattr(media, "_encoder_works", lambda name: (True, ""))
+    measured = []
+    monkeypatch.setattr(media, "_encode_seconds",
+                        lambda name, extra: (measured.append(name), 1.0)[1])
+
+    assert media.detect_hardware_encoder("libx264") is None  # 차이가 없으면 CPU
+    assert measured, "처음에는 재야 한다"
+
+    # 앱을 다시 켠 셈 — 메모리 캐시는 비었지만 파일에는 남아 있다
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
+    measured.clear()
+    assert media.detect_hardware_encoder("libx264") is None
+    assert measured == [], "두 번째 실행에서 또 쟀다"
+    assert media.hardware_attempts("libx264"), "이유도 함께 남아야 한다"
+
+
+def test_new_ffmpeg_makes_it_measure_again(tmp_path, monkeypatch):
+    """ffmpeg이 바뀌면 답도 달라질 수 있다."""
+    monkeypatch.setattr(media.config, "user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
+    monkeypatch.setattr(media, "_compiled_encoders", lambda: set())
+    monkeypatch.setattr(media, "_encoder_works", lambda name: (True, ""))
+    monkeypatch.setattr(media, "_encode_seconds", lambda name, extra: 1.0)
+    monkeypatch.setattr(media, "_fingerprint", lambda: "ffmpeg-예전것")
+    media.detect_hardware_encoder("libx264")
+
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
+    monkeypatch.setattr(media, "_fingerprint", lambda: "ffmpeg-새것")
+    assert media._load_cached_choice("libx264") is False
+
+
+def test_a_hair_faster_gpu_is_not_worth_switching(monkeypatch):
+    """재는 값에 흔들림이 있다. 차이가 미미하면 켤 때마다 답이 달라진다."""
+    monkeypatch.setattr(media, "_encode_seconds",
+                        lambda name, extra: 1.0 if name == "libx264" else 0.95)
+    ok, reason = media._hardware_beats_cpu("h264_nvenc")
+    assert ok is False and "느려서" in reason
