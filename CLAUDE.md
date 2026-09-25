@@ -15,7 +15,7 @@
 - 내 영상 파일 소스 — 같은 영상으로 19.0초 완성본
 - 묶은 앱 — ffmpeg·node가 **전혀 없는 PATH**에서 위 전 과정 완주
 - quickjs만으로 유튜브 챌린지 통과(node/deno 없이)
-- 테스트 170개
+- 테스트 198개
 
 무언가 안 될 때 첫 명령은 여전히 이것이다. 어느 단계에서 막혔는지 한 줄로 나온다:
 
@@ -102,6 +102,10 @@
   WebView2가 취소해버린다 — `PC에 저장`을 눌러도 아무 일이 없었다. 앱에서는
   `POST /api/projects/{id}/save`로 OS 저장 창을 띄우고 그 자리로 복사한다.
   파일은 어차피 이 PC에 있으니 자기 자신에게 HTTP로 내려받을 이유도 없다.
+- **GPU가 된다고 빠른 것이 아니다.** 보급형 GPU의 인코더는 요즘 CPU의 x264보다
+  느린 일이 흔하다. 사용 기기(Radeon RX 550)에서 1080p 60초에 GPU 19.2초 / CPU 15.5초,
+  파일은 GPU 쪽이 1.4배 컸다. `media._hardware_beats_cpu()`가 실제로 재보고 고른다.
+  `-encoders` 목록에 있는지 → 돌아가는지 → **CPU보다 빠른지**, 세 단계다.
 - **콘솔 없이 실행되면 `sys.stdout`이 None이다.** 창 모드로 묶은 앱을 바탕화면에서
   누를 때가 그렇다. uvicorn이 로깅을 준비하다 `sys.stdout.isatty()`에서 죽어
   서버가 아예 안 뜬다. `desktop.ensure_streams()`가 먼저 로그 파일로 바꿔 끼운다.
@@ -115,7 +119,7 @@
 ./run.sh --lan           # 같은 공유기의 다른 기기에서도
 CLIPPER_PASSWORD=x ./run.sh --share   # 공개 https 주소 (cloudflared 필요)
 
-pytest                   # 170개. 유튜브 접속 없이 전부 실제로 돌린다
+pytest                   # 198개. 유튜브 접속 없이 전부 실제로 돌린다
 python -m app.desktop    # 데스크톱 형태로 (pywebview 필요, --browser로 대체 가능)
 ```
 

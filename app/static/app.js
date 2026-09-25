@@ -915,8 +915,13 @@ function showEncoder(hw) {
     line.textContent = 'CPU 사용 (CLIPPER_HARDWARE=off 로 꺼둠)';
     return;
   }
-  line.textContent = 'CPU 사용 — GPU 인코더를 쓰지 못했습니다. 긴 영상은 몇 분 걸립니다';
+  // GPU가 되는데도 안 쓰는 경우가 있다 — 재보니 CPU가 더 빨랐을 때다.
+  // 그걸 "쓰지 못했습니다"로 적으면 고장난 줄 안다.
   const tried = (hw.attempts || []).filter((a) => !a.ok);
+  const slower = tried.find((a) => (a.reason || '').includes('CPU보다 느려서'));
+  line.textContent = slower
+    ? `CPU 사용 — 이 PC에서는 CPU가 더 빠릅니다 (${slower.encoder})`
+    : 'CPU 사용 — GPU 인코더를 쓰지 못했습니다. 긴 영상은 몇 분 걸립니다';
   if (!tried.length) return;
   const detail = document.createElement('details');
   detail.style.marginTop = '4px';

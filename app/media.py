@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -337,6 +338,45 @@ def _encoder_works(name: str) -> tuple[bool, str]:
     return False, reason or f"ffmpeg 종료 코드 {done.returncode}"
 
 
+# 속도를 견줄 때 쓰는 시험 영상. 실제 쓰임에 가까워야 의미가 있다.
+# 너무 짧으면 GPU를 깨우는 시간이 결과를 지배해 억울하게 느려 보인다.
+_BENCH_SOURCE = "testsrc2=size=1280x720:rate=30:d=5"
+_BENCH_SECONDS = 5.0
+
+
+def _encode_seconds(name: str, extra: list[str]) -> float | None:
+    """그 인코더로 시험 영상을 만드는 데 걸린 시간. 실패하면 None."""
+    cmd = [FFMPEG, "-v", "error", "-f", "lavfi", "-i", _BENCH_SOURCE,
+           "-c:v", name, *extra, "-pix_fmt", "yuv420p", "-f", "null", "-"]
+    began = time.perf_counter()
+    try:
+        done = subprocess.run(cmd, capture_output=True, timeout=120, **_TEXT)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return time.perf_counter() - began if done.returncode == 0 else None
+
+
+def _hardware_beats_cpu(name: str) -> tuple[bool, str]:
+    """GPU가 정말 CPU보다 빠른가. (빠른가, 사람이 읽을 설명)
+
+    되는 것과 빠른 것은 다르다. 보급형 GPU의 인코더는 요즘 CPU의 x264보다 느린 일이
+    흔하다 — 실제로 이 프로젝트의 사용 기기(Radeon RX 550)에서 1080p 60초를 만드는 데
+    GPU 19.2초, CPU 15.5초였다. 파일도 GPU 쪽이 1.4배 컸다.
+    '쓸 수 있으니 쓴다'로 두면 느려지는 쪽을 고르게 된다. 그래서 재보고 고른다.
+    """
+    gpu = _encode_seconds(name, _hw_quality_args(name, "fast"))
+    if gpu is None:
+        return False, "시험 인코딩에 실패했습니다"
+    cpu = _encode_seconds("libx264", ["-preset", "veryfast", "-crf", "23"])
+    if cpu is None:
+        return True, ""  # CPU 쪽을 못 쟀으면 판단 근거가 없다. 되는 것을 쓴다.
+
+    speeds = f"GPU {_BENCH_SECONDS / gpu:.1f}배속 vs CPU {_BENCH_SECONDS / cpu:.1f}배속"
+    if gpu < cpu:
+        return True, speeds
+    return False, f"CPU보다 느려서 쓰지 않습니다 ({speeds})"
+
+
 def detect_hardware_encoder(vcodec: str = "libx264") -> tuple[str, str] | None:
     """쓸 수 있는 하드웨어 인코더 (이름, 제조사). 없으면 None. 한 번만 조사한다."""
     if config.HARDWARE == "off":
@@ -352,6 +392,9 @@ def detect_hardware_encoder(vcodec: str = "libx264") -> tuple[str, str] | None:
                              "ok": False, "reason": "이 ffmpeg 빌드에 없습니다"})
             continue
         ok, reason = _encoder_works(name)
+        if ok and config.HARDWARE != "force":
+            # 되는 것과 빠른 것은 다르다. 느리면 안 쓰느니만 못하다.
+            ok, reason = _hardware_beats_cpu(name)
         attempts.append({"encoder": name, "vendor": vendor, "ok": ok, "reason": reason})
         if ok:
             found = (name, vendor)
@@ -359,8 +402,11 @@ def detect_hardware_encoder(vcodec: str = "libx264") -> tuple[str, str] | None:
     _hw_cache[vcodec] = found
     _hw_attempts[vcodec] = attempts
     for attempt in attempts:
-        print(f"[encoder] {attempt['encoder']}: "
-              f"{'사용 가능' if attempt['ok'] else '불가 — ' + attempt['reason']}", flush=True)
+        if attempt["ok"]:
+            note = f" ({attempt['reason']})" if attempt["reason"] else ""
+            print(f"[encoder] {attempt['encoder']}: 사용{note}", flush=True)
+        else:
+            print(f"[encoder] {attempt['encoder']}: 안 씀 — {attempt['reason']}", flush=True)
     return found
 
 

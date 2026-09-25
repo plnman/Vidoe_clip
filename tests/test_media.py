@@ -266,6 +266,7 @@ def test_detection_tries_candidates_and_caches(monkeypatch):
         return (True, "") if name == "h264_qsv" else (False, "이 기계에 없음")
 
     monkeypatch.setattr(media, "_encoder_works", works)
+    monkeypatch.setattr(media, "_hardware_beats_cpu", lambda name: (True, ""))
     assert media.detect_hardware_encoder("libx264") == ("h264_qsv", "Intel")
     assert calls == ["h264_nvenc", "h264_qsv"], "되는 것을 찾으면 멈춰야 한다"
     media.detect_hardware_encoder("libx264")
@@ -368,3 +369,66 @@ def test_failed_attempts_are_recorded_with_a_reason(monkeypatch):
     assert by_name["h264_amf"]["reason"] == "드라이버 없음"
     assert by_name["h264_nvenc"]["reason"] == "이 ffmpeg 빌드에 없습니다"
     assert not any(a["ok"] for a in attempts)
+
+
+# --- GPU가 정말 빠른지까지 본다 ----------------------------------------------
+
+def test_slow_hardware_encoder_is_not_used(monkeypatch):
+    """되는 것과 빠른 것은 다르다.
+
+    보급형 GPU의 인코더는 요즘 CPU의 x264보다 느린 일이 흔하다. 실제로 사용 기기
+    (Radeon RX 550)에서 1080p 60초에 GPU 19.2초, CPU 15.5초였다. 파일도 1.4배 컸다.
+    '쓸 수 있으니 쓴다'로 두면 느려지는 쪽을 고르게 된다.
+    """
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
+    monkeypatch.setattr(media, "_compiled_encoders", lambda: set())
+    monkeypatch.setattr(media, "_encoder_works", lambda name: (True, ""))
+    # GPU가 CPU보다 느린 상황
+    monkeypatch.setattr(media, "_encode_seconds",
+                        lambda name, extra: 1.0 if name == "libx264" else 2.0)
+
+    assert media.detect_hardware_encoder("libx264") is None
+    reasons = [a["reason"] for a in media.hardware_attempts("libx264")]
+    assert any("CPU보다 느려서" in r for r in reasons), reasons
+    assert any("배속" in r for r in reasons), "얼마나 느린지도 보여줘야 한다"
+
+
+def test_fast_hardware_encoder_is_used_and_says_how_fast(monkeypatch):
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
+    monkeypatch.setattr(media, "_compiled_encoders", lambda: set())
+    monkeypatch.setattr(media, "_encoder_works", lambda name: (True, ""))
+    monkeypatch.setattr(media, "_encode_seconds",
+                        lambda name, extra: 2.0 if name == "libx264" else 0.5)
+
+    found = media.detect_hardware_encoder("libx264")
+    assert found == ("h264_nvenc", "NVIDIA")
+    used = [a for a in media.hardware_attempts("libx264") if a["ok"]]
+    assert "배속" in used[0]["reason"]
+
+
+def test_force_skips_the_speed_check(monkeypatch):
+    """느려도 GPU를 쓰고 싶을 때가 있다 — 인코딩 중 CPU를 다른 일에 쓰려는 경우."""
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
+    monkeypatch.setattr(media, "_compiled_encoders", lambda: set())
+    monkeypatch.setattr(media, "_encoder_works", lambda name: (True, ""))
+    monkeypatch.setattr(media.config, "HARDWARE", "force")
+
+    def must_not_run(name, extra):
+        raise AssertionError("force인데 속도를 쟀다")
+
+    monkeypatch.setattr(media, "_encode_seconds", must_not_run)
+    assert media.detect_hardware_encoder("libx264") == ("h264_nvenc", "NVIDIA")
+
+
+def test_unmeasurable_cpu_does_not_block_hardware(monkeypatch):
+    """CPU 쪽을 못 쟀으면 견줄 근거가 없다. 되는 것을 쓴다."""
+    monkeypatch.setattr(media, "_hw_cache", {})
+    monkeypatch.setattr(media, "_hw_attempts", {})
+    monkeypatch.setattr(media, "_compiled_encoders", lambda: set())
+    monkeypatch.setattr(media, "_encoder_works", lambda name: (True, ""))
+    monkeypatch.setattr(media, "_encode_seconds",
+                        lambda name, extra: None if name == "libx264" else 1.0)
+    assert media.detect_hardware_encoder("libx264") == ("h264_nvenc", "NVIDIA")

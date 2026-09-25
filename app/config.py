@@ -99,8 +99,14 @@ MAX_PAD = _int("CLIPPER_MAX_PAD", 120)
 
 DEFAULT_HEIGHT = _int("CLIPPER_DEFAULT_HEIGHT", 1080)
 
-# GPU 인코더 사용 여부. "auto"면 쓸 수 있으면 쓰고, "off"면 항상 CPU로 인코딩한다.
-# 화질이 마음에 안 들 때 되돌릴 수 있는 탈출구다.
+# GPU 인코더 사용 여부.
+#
+#   auto  (기본) 쓸 수 있고 **CPU보다 실제로 빠를 때만** 쓴다
+#   off         항상 CPU. 화질이 마음에 안 들 때의 탈출구
+#   force       느려도 GPU를 쓴다. 인코딩하는 동안 CPU를 다른 일에 쓰고 싶을 때
+#
+# auto가 속도까지 재는 이유는 media._hardware_beats_cpu에 적어 두었다 —
+# 보급형 GPU는 요즘 CPU의 x264보다 느린 일이 흔하다.
 HARDWARE = (os.environ.get("CLIPPER_HARDWARE", "auto") or "auto").strip().lower()
 
 # 받을 양이 영상의 이 비율을 넘으면 통째로 받는 편이 빠르다.
